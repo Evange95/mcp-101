@@ -77,7 +77,12 @@ Errors:
 `get_type(key)`, `get_evolution_chain(chain_id: int)`, `get_move(key)`.
 
 `PokedexService(repository)` exposes the same six use cases and:
-- normalizes string keys: `str(key).strip().lower()`; spaces → `-` (e.g. `"mr mime"` → `"mr-mime"`)
+- normalizes string keys via `normalize_key`: strips accents (`unicodedata.normalize("NFKD", ...)`
+  dropping combining marks), removes apostrophes/dots/colons, lowercases, collapses whitespace runs
+  to `-` (e.g. `"Flabébé"` → `"flabebe"`, `"Farfetch'd"` → `"farfetchd"`, `"Mr. Mime"` → `"mr-mime"`)
+- rejects empty keys and any key that doesn't match `[a-z0-9-]+` after normalization with
+  `InvalidQuery`, before the repository is called — this blocks path-injection attempts
+  (`/`, `..`, `?`, `#`, `%`) from reaching the PokeAPI request path
 - raises `InvalidQuery` on empty keys, `limit` outside 1–100, `offset < 0`
 - accepts numeric ids as `int | str`
 
@@ -135,7 +140,8 @@ cached. Injectable monotonic clock for deterministic tests. No external dependen
 ## FastAPI host app
 
 `create_app(settings)` (builds a fresh `MCPServer` per app: the SDK session manager can run only once per instance):
-- lifespan: creates `httpx.AsyncClient` (closed on shutdown) and runs `mcp.session_manager.run()`
+- the `httpx.AsyncClient` is created in `create_app` itself and closed by the lifespan
+- lifespan: enters the `httpx.AsyncClient` (closed on shutdown) and runs `mcp.session_manager.run()`
 - `GET /health` → `{"status": "ok"}`
 - MCP mounted so the endpoint is `POST /mcp`
 - console script `pokedex-mcp` → uvicorn on `HOST:PORT`
@@ -147,7 +153,8 @@ Usage with Claude Code: `claude mcp add --transport http pokedex http://127.0.0.
 - Multi-stage `Dockerfile`: builder based on the official uv image installs deps with
   `uv sync --locked --no-dev` into `/app/.venv`; runtime on `python:3.14-slim`, non-root user,
   `POKEDEX_HOST=0.0.0.0`, `EXPOSE 8000`, `HEALTHCHECK` on `/health`.
-- `compose.yaml` (run with `docker compose up --build`) mapping `8000:8000`.
+- `compose.yaml` (run with `docker compose up --build`) publishes on loopback only,
+  mapping `127.0.0.1:8000:8000`.
 - `.dockerignore` excluding `.venv`, caches, tests, docs, `.git`.
 - MCP transport security: the SDK only accepts localhost `Host` headers by default. Requests
   through the port mapping arrive as `localhost:8000`, so this works; extra allowed hosts are
@@ -158,7 +165,7 @@ Usage with Claude Code: `claude mcp add --transport http pokedex http://127.0.0.
 
 1. Domain + use cases — unit tests with an in-memory `FakePokedexRepository`
 2. Cache and retry decorators — fake repo counting calls, fake clock, zero-wait retry
-3. PokeApiRepository — respx with trimmed realistic JSON fixtures in `tests/fixtures/`
+3. PokeApiRepository — respx with trimmed realistic JSON fixtures in `tests/data/pokeapi/`
 4. MCP adapter — in-memory `mcp.Client(server)`: tool listing, structured output, error mapping
 5. App — `/health` via httpx ASGI transport; wiring test that `/mcp` is mounted
 6. Optional `@pytest.mark.live` tests against real PokeAPI, excluded by default

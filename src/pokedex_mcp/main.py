@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import httpx
-import uvicorn as uvicorn  # re-exported: tests patch `main.uvicorn.run`
+import uvicorn
 from fastapi import FastAPI
 from mcp.server.transport_security import TransportSecuritySettings
 

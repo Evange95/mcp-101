@@ -3,7 +3,7 @@ services:
     build: .
     image: pokedex-mcp:latest
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       POKEDEX_CACHE_TTL_SECONDS: "3600"
       POKEDEX_RETRY_ATTEMPTS: "3"

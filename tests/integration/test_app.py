@@ -103,7 +103,7 @@ def test_run_serves_the_app_with_configured_host_and_port(monkeypatch):
     captured: dict[str, Any] = {}
     monkeypatch.setenv("POKEDEX_HOST", "0.0.0.0")
     monkeypatch.setenv("POKEDEX_PORT", "9000")
-    monkeypatch.setattr(main.uvicorn, "run", lambda app, **kwargs: captured.update(kwargs))
+    monkeypatch.setattr("uvicorn.run", lambda app, **kwargs: captured.update(kwargs))
 
     main.run()
 

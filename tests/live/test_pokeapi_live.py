@@ -14,7 +14,8 @@ async def test_real_pokeapi_matches_our_dtos() -> None:
 
         pokemon = await repository.get_pokemon("pikachu")
         species = await repository.get_species("pikachu")
-        chain = await repository.get_evolution_chain(species.evolution_chain_id or 0)
+        assert species.evolution_chain_id is not None
+        chain = await repository.get_evolution_chain(species.evolution_chain_id)
         move = await repository.get_move("thunderbolt")
         electric = await repository.get_type("electric")
         page = await repository.list_pokemon(limit=3, offset=0)

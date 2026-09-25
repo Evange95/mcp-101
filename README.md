@@ -60,3 +60,12 @@ uv run pytest              # unit + integration (no network)
 uv run pytest -m live      # contract test against the real PokeAPI
 uv run ruff check . && uv run ruff format --check . && uv run mypy
 ```
+
+## Security
+
+`/mcp` has no authentication and is meant for localhost / trusted networks only.
+`docker compose` binds it to `127.0.0.1`, not all interfaces. `POKEDEX_ALLOWED_HOSTS`
+only extends which `Host` headers `/mcp` accepts — it does not authorize browser
+`Origin` headers, since browser-based MCP clients are out of scope. Input names/ids
+accept letters, digits, spaces and hyphens; accents, apostrophes and dots are
+normalized away (e.g. `Flabébé` -> `flabebe`, `Mr. Mime` -> `mr-mime`).
