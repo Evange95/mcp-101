@@ -7,11 +7,15 @@ import respx
 from pokedex_mcp.adapters.outbound.pokeapi.client import PokeApiRepository
 from pokedex_mcp.domain.errors import NotFound, PokedexUnavailable
 from pokedex_mcp.domain.models import (
+    EvolutionChain,
+    EvolutionStage,
+    Move,
     Pokemon,
     PokemonPage,
     PokemonSpecies,
     PokemonStat,
     PokemonSummary,
+    PokemonType,
 )
 from tests.data import load_json
 
@@ -132,3 +136,78 @@ async def test_unexpected_payload_is_not_retryable(repository, pokeapi):
         await repository.get_pokemon("pikachu")
 
     assert excinfo.value.retryable is False
+
+
+async def test_get_type_maps_damage_relations(repository, pokeapi):
+    pokeapi.get("/type/electric").respond(json=load_json("type_electric.json"))
+
+    assert await repository.get_type("electric") == PokemonType(
+        id=13,
+        name="electric",
+        double_damage_from=("ground",),
+        double_damage_to=("flying", "water"),
+        half_damage_from=("flying", "steel", "electric"),
+        half_damage_to=("grass", "electric", "dragon"),
+        no_damage_from=(),
+        no_damage_to=("ground",),
+    )
+
+
+async def test_get_evolution_chain_maps_a_branching_tree(repository, pokeapi):
+    pokeapi.get("/evolution-chain/67").respond(json=load_json("evolution_chain_eevee.json"))
+
+    assert await repository.get_evolution_chain(67) == EvolutionChain(
+        id=67,
+        root=EvolutionStage(
+            "eevee",
+            (EvolutionStage("vaporeon"), EvolutionStage("jolteon"), EvolutionStage("flareon")),
+        ),
+    )
+
+
+async def test_get_move_uses_the_english_short_effect(repository, pokeapi):
+    pokeapi.get("/move/thunderbolt").respond(json=load_json("move_thunderbolt.json"))
+
+    assert await repository.get_move("thunderbolt") == Move(
+        id=85,
+        name="thunderbolt",
+        type="electric",
+        damage_class="special",
+        power=90,
+        accuracy=100,
+        pp=15,
+        effect_chance=10,
+        effect="Has a chance to paralyze the target.",
+    )
+
+
+async def test_get_move_tolerates_missing_optional_data(repository, pokeapi):
+    payload = load_json("move_thunderbolt.json")
+    payload.update(power=None, accuracy=None, effect_chance=None, damage_class=None)
+    payload["effect_entries"] = payload["effect_entries"][:1]
+    pokeapi.get("/move/thunderbolt").respond(json=payload)
+
+    move = await repository.get_move("thunderbolt")
+
+    assert (move.power, move.accuracy, move.effect_chance, move.damage_class) == (None,) * 4
+    assert move.effect is None
+
+
+@pytest.mark.parametrize(
+    ("path", "call", "message"),
+    [
+        ("/pokemon-species/nope", lambda r: r.get_species("nope"), "Species 'nope' not found"),
+        ("/type/nope", lambda r: r.get_type("nope"), "Type 'nope' not found"),
+        (
+            "/evolution-chain/999",
+            lambda r: r.get_evolution_chain(999),
+            "Evolution chain '999' not found",
+        ),
+        ("/move/nope", lambda r: r.get_move("nope"), "Move 'nope' not found"),
+    ],
+)
+async def test_not_found_names_the_resource(repository, pokeapi, path, call, message):
+    pokeapi.get(path).respond(404)
+
+    with pytest.raises(NotFound, match=message):
+        await call(repository)

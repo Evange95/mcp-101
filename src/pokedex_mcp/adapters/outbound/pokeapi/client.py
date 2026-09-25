@@ -5,10 +5,31 @@ import logging
 import httpx
 from pydantic import BaseModel, ValidationError
 
-from pokedex_mcp.adapters.outbound.pokeapi.mappers import to_page, to_pokemon, to_species
-from pokedex_mcp.adapters.outbound.pokeapi.schemas import PokemonDTO, PokemonListDTO, SpeciesDTO
+from pokedex_mcp.adapters.outbound.pokeapi.mappers import (
+    to_evolution_chain,
+    to_move,
+    to_page,
+    to_pokemon,
+    to_species,
+    to_type,
+)
+from pokedex_mcp.adapters.outbound.pokeapi.schemas import (
+    EvolutionChainDTO,
+    MoveDTO,
+    PokemonDTO,
+    PokemonListDTO,
+    SpeciesDTO,
+    TypeDTO,
+)
 from pokedex_mcp.domain.errors import NotFound, PokedexUnavailable
-from pokedex_mcp.domain.models import Pokemon, PokemonPage, PokemonSpecies
+from pokedex_mcp.domain.models import (
+    EvolutionChain,
+    Move,
+    Pokemon,
+    PokemonPage,
+    PokemonSpecies,
+    PokemonType,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +57,23 @@ class PokeApiRepository:
             params={"limit": limit, "offset": offset},
         )
         return to_page(dto, limit=limit, offset=offset)
+
+    async def get_type(self, key: str) -> PokemonType:
+        dto = await self._fetch(f"type/{key}", TypeDTO, resource="Type", key=key)
+        return to_type(dto)
+
+    async def get_evolution_chain(self, chain_id: int) -> EvolutionChain:
+        dto = await self._fetch(
+            f"evolution-chain/{chain_id}",
+            EvolutionChainDTO,
+            resource="Evolution chain",
+            key=str(chain_id),
+        )
+        return to_evolution_chain(dto)
+
+    async def get_move(self, key: str) -> Move:
+        dto = await self._fetch(f"move/{key}", MoveDTO, resource="Move", key=key)
+        return to_move(dto)
 
     async def _fetch[M: BaseModel](
         self,

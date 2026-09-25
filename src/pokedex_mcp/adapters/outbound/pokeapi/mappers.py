@@ -1,12 +1,25 @@
 """Pure functions translating PokeAPI DTOs into domain entities."""
 
-from pokedex_mcp.adapters.outbound.pokeapi.schemas import PokemonDTO, PokemonListDTO, SpeciesDTO
+from pokedex_mcp.adapters.outbound.pokeapi.schemas import (
+    ChainLinkDTO,
+    EvolutionChainDTO,
+    MoveDTO,
+    NamedResource,
+    PokemonDTO,
+    PokemonListDTO,
+    SpeciesDTO,
+    TypeDTO,
+)
 from pokedex_mcp.domain.models import (
+    EvolutionChain,
+    EvolutionStage,
+    Move,
     Pokemon,
     PokemonPage,
     PokemonSpecies,
     PokemonStat,
     PokemonSummary,
+    PokemonType,
 )
 
 ENGLISH = "en"
@@ -57,4 +70,51 @@ def to_page(dto: PokemonListDTO, *, limit: int, offset: int) -> PokemonPage:
         limit=limit,
         offset=offset,
         items=tuple(PokemonSummary(id=resource_id(r.url), name=r.name) for r in dto.results),
+    )
+
+
+def _names(resources: list[NamedResource]) -> tuple[str, ...]:
+    return tuple(resource.name for resource in resources)
+
+
+def to_type(dto: TypeDTO) -> PokemonType:
+    relations = dto.damage_relations
+    return PokemonType(
+        id=dto.id,
+        name=dto.name,
+        double_damage_from=_names(relations.double_damage_from),
+        double_damage_to=_names(relations.double_damage_to),
+        half_damage_from=_names(relations.half_damage_from),
+        half_damage_to=_names(relations.half_damage_to),
+        no_damage_from=_names(relations.no_damage_from),
+        no_damage_to=_names(relations.no_damage_to),
+    )
+
+
+def _to_stage(link: ChainLinkDTO) -> EvolutionStage:
+    return EvolutionStage(
+        species=link.species.name,
+        evolves_to=tuple(_to_stage(next_link) for next_link in link.evolves_to),
+    )
+
+
+def to_evolution_chain(dto: EvolutionChainDTO) -> EvolutionChain:
+    return EvolutionChain(id=dto.id, root=_to_stage(dto.chain))
+
+
+def to_move(dto: MoveDTO) -> Move:
+    effect = next(
+        (clean_text(e.short_effect) for e in dto.effect_entries if e.language.name == ENGLISH),
+        None,
+    )
+    return Move(
+        id=dto.id,
+        name=dto.name,
+        type=dto.type.name,
+        damage_class=dto.damage_class.name if dto.damage_class else None,
+        power=dto.power,
+        accuracy=dto.accuracy,
+        pp=dto.pp,
+        effect_chance=dto.effect_chance,
+        effect=effect,
     )
