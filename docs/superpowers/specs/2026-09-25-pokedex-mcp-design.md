@@ -61,8 +61,8 @@ All `@dataclass(frozen=True, slots=True)`, collections as `tuple`.
 - `PokemonSummary(name, id)` and `PokemonPage(total: int, items: tuple[PokemonSummary, ...], limit: int, offset: int)`
 - `PokemonType(id, name, double_damage_from, double_damage_to, half_damage_from, half_damage_to, no_damage_from, no_damage_to)` — each a `tuple[str, ...]`
 - `EvolutionStage(species: str, evolves_to: tuple[EvolutionStage, ...])` and `EvolutionChain(id, root: EvolutionStage)` (recursive tree, supports branching e.g. Eevee)
-- `Move(id, name, type: str, damage_class: str, power: int | None, accuracy: int | None, pp: int | None, effect: str | None)`
-  - `effect`: English `short_effect`, with `$effect_chance` substituted when present
+- `Move(id, name, type: str, damage_class: str | None, power: int | None, accuracy: int | None, pp: int | None, effect_chance: int | None, effect: str | None)`
+  - `effect`: English `short_effect`, whitespace normalized (current PokeAPI data no longer embeds `$effect_chance`, so the chance is exposed as its own field)
 
 Errors:
 - `PokedexError(Exception)` base
@@ -78,7 +78,7 @@ Errors:
 
 `PokedexService(repository)` exposes the same six use cases and:
 - normalizes string keys: `str(key).strip().lower()`; spaces → `-` (e.g. `"mr mime"` → `"mr-mime"`)
-- raises `InvalidQuery` on empty keys, `limit` outside 1–100, `offset < 0`, `chain_id < 1`
+- raises `InvalidQuery` on empty keys, `limit` outside 1–100, `offset < 0`
 - accepts numeric ids as `int | str`
 
 ## Inbound adapter: MCP tools
@@ -95,9 +95,11 @@ Errors:
 `get_evolution_chain` takes a Pokémon name/id (user-friendly): the service resolves
 the species → `evolution_chain_id` → chain. If the species has no chain → `NotFound`.
 
-Tools return Pydantic output models (structured output). Domain → output model mapping
-lives in the adapter. `PokedexError` is converted to the SDK tool error (`isError=true`)
-with the domain message; any other exception propagates (no silent swallowing).
+Tools return Pydantic output models (structured output); sizes are converted to
+`height_m` / `weight_kg` for readability. Domain → output model mapping
+lives in the adapter. `PokedexError` is converted to the SDK `ToolError` (`isError=true`)
+with the domain message; any other exception is left to the SDK, which reports a generic
+tool error and logs it (the adapter never swallows exceptions itself).
 
 ## Outbound adapters
 
@@ -108,11 +110,12 @@ the composition root). Mapping:
 |---|---|
 | HTTP 404 | `NotFound(resource, key)` |
 | HTTP 5xx, 429, `httpx.TimeoutException`, `httpx.TransportError` | `PokedexUnavailable` |
-| Pydantic `ValidationError` on payload | `PokedexUnavailable` (details logged) |
-| Other 4xx | `PokedexUnavailable` |
+| Pydantic `ValidationError` on payload | `PokedexUnavailable(retryable=False)` (details logged) |
+| Other 4xx | `PokedexUnavailable(retryable=False)` |
 
-**RetryingPokedexRepository** — retries only `PokedexUnavailable` except
-payload-validation failures (marked non-retryable via a `retryable: bool` flag on the error).
+Only transport errors, timeouts, 5xx and 429 produce a retryable `PokedexUnavailable`.
+
+**RetryingPokedexRepository** — retries only `PokedexUnavailable` with `retryable=True`.
 Defaults: 3 attempts, exponential backoff with jitter (0.2s → 2s). Wait strategy injectable
 so tests run with zero wait. `NotFound` / `InvalidQuery` never retried.
 
@@ -131,7 +134,7 @@ cached. Injectable monotonic clock for deterministic tests. No external dependen
 
 ## FastAPI host app
 
-`create_app(settings)`:
+`create_app(settings)` (builds a fresh `MCPServer` per app: the SDK session manager can run only once per instance):
 - lifespan: creates `httpx.AsyncClient` (closed on shutdown) and runs `mcp.session_manager.run()`
 - `GET /health` → `{"status": "ok"}`
 - MCP mounted so the endpoint is `POST /mcp`
