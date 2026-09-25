@@ -163,6 +163,14 @@ async def test_invalid_query_is_reported_as_a_tool_error(client):
     assert "must not be empty" in text_of(result)
 
 
+async def test_path_injection_attempt_is_reported_as_a_tool_error(client, repository):
+    result = await client.call_tool("get_pokemon", {"name_or_id": "../../../evil"})
+
+    assert result.is_error is True
+    assert "may only contain" in text_of(result)
+    assert repository.calls == []
+
+
 async def test_unavailable_service_is_reported_as_a_tool_error(client, repository):
     repository.fail_next(PokedexUnavailable("HTTP 503"))
 

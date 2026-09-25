@@ -41,7 +41,13 @@ async def test_get_pokemon_returns_the_pokemon_from_the_repository(service):
 
 @pytest.mark.parametrize(
     ("raw", "expected_key"),
-    [("  Pikachu ", "pikachu"), (25, "25"), ("Mr Mime", "mr-mime"), ("MR   mime", "mr-mime")],
+    [
+        ("  Pikachu ", "pikachu"),
+        (25, "25"),
+        ("Mr Mime", "mr-mime"),
+        ("MR   mime", "mr-mime"),
+        ("Mr. Mime", "mr-mime"),
+    ],
 )
 async def test_get_pokemon_normalizes_the_key(service, repository, raw, expected_key):
     await service.get_pokemon(raw)
@@ -49,9 +55,38 @@ async def test_get_pokemon_normalizes_the_key(service, repository, raw, expected
     assert repository.calls == [f"get_pokemon:{expected_key}"]
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected_key"),
+    [
+        ("Flabébé", "flabebe"),
+        ("Farfetch'd", "farfetchd"),
+        ("Farfetch" + chr(0x2019) + "d", "farfetchd"),
+        ("Type: Null", "type-null"),
+    ],
+)
+async def test_get_pokemon_normalizes_unusual_names_not_in_the_fixture(
+    service, repository, raw, expected_key
+):
+    with pytest.raises(NotFound):
+        await service.get_pokemon(raw)
+
+    assert repository.calls == [f"get_pokemon:{expected_key}"]
+
+
 @pytest.mark.parametrize("raw", ["", "   "])
 async def test_blank_keys_are_rejected_without_calling_the_repository(service, repository, raw):
     with pytest.raises(InvalidQuery, match="must not be empty"):
+        await service.get_pokemon(raw)
+
+    assert repository.calls == []
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["../x", "a/b", "a?b", "a#b", "pika%2Fchu"],
+)
+async def test_keys_with_path_injection_characters_are_rejected(service, repository, raw):
+    with pytest.raises(InvalidQuery, match="may only contain letters, digits, spaces or hyphens"):
         await service.get_pokemon(raw)
 
     assert repository.calls == []

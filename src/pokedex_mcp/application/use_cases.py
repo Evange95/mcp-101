@@ -1,5 +1,8 @@
 """Pokédex use cases: input validation and orchestration over the repository port."""
 
+import re
+import unicodedata
+
 from pokedex_mcp.application.ports import PokedexRepository
 from pokedex_mcp.domain.errors import InvalidQuery, NotFound
 from pokedex_mcp.domain.models import (
@@ -16,9 +19,15 @@ MAX_PAGE_SIZE = 100
 
 def normalize_key(raw: str | int) -> str:
     """Turn user input like `"  Mr Mime "` or `25` into a PokeAPI key (`"mr-mime"`, `"25"`)."""
-    key = "-".join(str(raw).strip().lower().split())
+    text = unicodedata.normalize("NFKD", str(raw))
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    text = text.strip().lower()
+    text = text.replace("'", "").replace(chr(0x2019), "").replace(".", "").replace(":", "")
+    key = "-".join(text.split())
     if not key:
         raise InvalidQuery("name or id must not be empty")
+    if not re.fullmatch(r"[a-z0-9-]+", key):
+        raise InvalidQuery("name or id may only contain letters, digits, spaces or hyphens")
     return key
 
 
