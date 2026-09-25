@@ -560,7 +560,9 @@ class FakePokedexRepository:
     async def list_pokemon(self, limit: int, offset: int) -> PokemonPage:
         self._record("list_pokemon", limit, offset)
         ordered = sorted({p.id: p for p in self._pokemon.values()}.values(), key=lambda p: p.id)
-        items = tuple(PokemonSummary(id=p.id, name=p.name) for p in ordered[offset : offset + limit])
+        items = tuple(
+            PokemonSummary(id=p.id, name=p.name) for p in ordered[offset : offset + limit]
+        )
         return PokemonPage(total=len(ordered), limit=limit, offset=offset, items=items)
 
     async def get_type(self, key: str) -> PokemonType:
@@ -600,7 +602,11 @@ pytestmark = pytest.mark.anyio
 @pytest.fixture
 def repository() -> FakePokedexRepository:
     return FakePokedexRepository(
-        pokemon=[make_pokemon("bulbasaur", 1), make_pokemon("pikachu", 25), make_pokemon("mr-mime", 122)],
+        pokemon=[
+            make_pokemon("bulbasaur", 1),
+            make_pokemon("pikachu", 25),
+            make_pokemon("mr-mime", 122),
+        ],
         species=[make_species("pikachu", 25), make_species("tauros", 128, evolution_chain_id=None)],
         types=[make_type()],
         chains=[make_evolution_chain(10)],
@@ -970,7 +976,9 @@ async def test_http_404_becomes_not_found(repository, pokeapi):
         await repository.get_pokemon("missingno")
 
 
-@pytest.mark.parametrize(("status", "retryable"), [(500, True), (503, True), (429, True), (400, False)])
+@pytest.mark.parametrize(
+    ("status", "retryable"), [(500, True), (503, True), (429, True), (400, False)]
+)
 async def test_http_errors_become_pokedex_unavailable(repository, pokeapi, status, retryable):
     pokeapi.get("/pokemon/pikachu").respond(status)
 
@@ -1207,7 +1215,9 @@ class PokeApiRepository:
         if response.status_code == httpx.codes.NOT_FOUND:
             raise NotFound(resource, key)
         if response.is_error:
-            retryable = response.is_server_error or response.status_code == httpx.codes.TOO_MANY_REQUESTS
+            retryable = (
+                response.is_server_error or response.status_code == httpx.codes.TOO_MANY_REQUESTS
+            )
             raise PokedexUnavailable(
                 f"PokeAPI returned HTTP {response.status_code}", retryable=retryable
             )
@@ -1332,7 +1342,11 @@ async def test_get_move_tolerates_missing_optional_data(repository, pokeapi):
     [
         ("/pokemon-species/nope", lambda r: r.get_species("nope"), "Species 'nope' not found"),
         ("/type/nope", lambda r: r.get_type("nope"), "Type 'nope' not found"),
-        ("/evolution-chain/999", lambda r: r.get_evolution_chain(999), "Evolution chain '999' not found"),
+        (
+            "/evolution-chain/999",
+            lambda r: r.get_evolution_chain(999),
+            "Evolution chain '999' not found",
+        ),
         ("/move/nope", lambda r: r.get_move("nope"), "Move 'nope' not found"),
     ],
 )
@@ -1499,22 +1513,24 @@ from pokedex_mcp.domain.models import (
 ```
 Add after `list_pokemon`:
 ```python
-    async def get_type(self, key: str) -> PokemonType:
-        dto = await self._fetch(f"type/{key}", TypeDTO, resource="Type", key=key)
-        return to_type(dto)
+async def get_type(self, key: str) -> PokemonType:
+    dto = await self._fetch(f"type/{key}", TypeDTO, resource="Type", key=key)
+    return to_type(dto)
 
-    async def get_evolution_chain(self, chain_id: int) -> EvolutionChain:
-        dto = await self._fetch(
-            f"evolution-chain/{chain_id}",
-            EvolutionChainDTO,
-            resource="Evolution chain",
-            key=str(chain_id),
-        )
-        return to_evolution_chain(dto)
 
-    async def get_move(self, key: str) -> Move:
-        dto = await self._fetch(f"move/{key}", MoveDTO, resource="Move", key=key)
-        return to_move(dto)
+async def get_evolution_chain(self, chain_id: int) -> EvolutionChain:
+    dto = await self._fetch(
+        f"evolution-chain/{chain_id}",
+        EvolutionChainDTO,
+        resource="Evolution chain",
+        key=str(chain_id),
+    )
+    return to_evolution_chain(dto)
+
+
+async def get_move(self, key: str) -> Move:
+    dto = await self._fetch(f"move/{key}", MoveDTO, resource="Move", key=key)
+    return to_move(dto)
 ```
 
 - [ ] **Step 7: Run tests to verify they pass**
@@ -1559,6 +1575,7 @@ def full_repository() -> FakePokedexRepository:
         chains=[make_evolution_chain(10)],
         moves=[make_move()],
     )
+
 
 # Each param is a Callable[[PokedexRepository], Awaitable[object]].
 REPOSITORY_OPERATIONS: list[object] = [
