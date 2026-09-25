@@ -1,0 +1,10 @@
+services:
+  pokedex-mcp:
+    build: .
+    image: pokedex-mcp:latest
+    ports:
+      - "8000:8000"
+    environment:
+      POKEDEX_CACHE_TTL_SECONDS: "3600"
+      POKEDEX_RETRY_ATTEMPTS: "3"
+    restart: unless-stopped
