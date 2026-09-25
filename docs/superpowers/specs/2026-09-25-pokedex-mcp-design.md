@@ -127,6 +127,7 @@ cached. Injectable monotonic clock for deterministic tests. No external dependen
 - `CACHE_TTL_SECONDS` = 3600, `CACHE_MAX_ENTRIES` = 512
 - `RETRY_ATTEMPTS` = 3
 - `HOST` = `127.0.0.1`, `PORT` = 8000
+- `ALLOWED_HOSTS` = `[]` (extra Host headers accepted by the MCP transport)
 
 ## FastAPI host app
 
@@ -137,6 +138,18 @@ cached. Injectable monotonic clock for deterministic tests. No external dependen
 - console script `pokedex-mcp` → uvicorn on `HOST:PORT`
 
 Usage with Claude Code: `claude mcp add --transport http pokedex http://127.0.0.1:8000/mcp`
+
+## Docker
+
+- Multi-stage `Dockerfile`: builder based on the official uv image installs deps with
+  `uv sync --locked --no-dev` into `/app/.venv`; runtime on `python:3.14-slim`, non-root user,
+  `POKEDEX_HOST=0.0.0.0`, `EXPOSE 8000`, `HEALTHCHECK` on `/health`.
+- `compose.yaml` (run with `docker compose up --build`) mapping `8000:8000`.
+- `.dockerignore` excluding `.venv`, caches, tests, docs, `.git`.
+- MCP transport security: the SDK only accepts localhost `Host` headers by default. Requests
+  through the port mapping arrive as `localhost:8000`, so this works; extra allowed hosts are
+  configurable via `POKEDEX_ALLOWED_HOSTS` (comma-separated, default empty).
+- Verification: build the image, start with compose, `curl /health`, list tools via an MCP client.
 
 ## Testing strategy (TDD, inside-out)
 
@@ -155,4 +168,3 @@ Quality gates: `uv run pytest`, `uv run ruff check`, `uv run ruff format --check
 - Persistent/distributed cache
 - REST endpoints mirroring the tools
 - Languages other than English for flavor text / effects
-- Docker image
