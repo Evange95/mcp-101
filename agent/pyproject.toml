@@ -1,0 +1,43 @@
+[project]
+name = "pokedex-agent"
+version = "0.1.0"
+description = "Demo agent (Claude Agent SDK) that explores Pokédex data through the pokedex MCP server"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "claude-agent-sdk==0.2.159",
+    "httpx==0.28.1",
+    "pyyaml==6.0.3",
+]
+
+[project.scripts]
+pokedex-agent = "pokedex_agent.cli:main"
+
+[dependency-groups]
+dev = [
+    "anyio==4.15.1",
+    "pytest==9.1.1",
+    "ruff==0.16.9",
+]
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers"
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "ASYNC", "PT"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["pokedex_agent"]

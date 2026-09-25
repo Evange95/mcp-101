@@ -1,0 +1,53 @@
+# Tool-access policy enforced by the agent's PreToolUse hook.
+# Anything not denied by a rule is allowed; tools outside the pokedex MCP server
+# are always denied.
+
+roles: [trainer, professor]
+
+# Legendary and mythical Pokémon (generations I-IV): name -> National Dex number.
+# Names are normalized like the MCP server does, so "Ho Oh" or "HO-OH" both match.
+legendary: &legendary
+  articuno: 144
+  zapdos: 145
+  moltres: 146
+  mewtwo: 150
+  mew: 151
+  raikou: 243
+  entei: 244
+  suicune: 245
+  lugia: 249
+  ho-oh: 250
+  celebi: 251
+  regirock: 377
+  regice: 378
+  registeel: 379
+  latias: 380
+  latios: 381
+  kyogre: 382
+  groudon: 383
+  rayquaza: 384
+  jirachi: 385
+  deoxys: 386
+  uxie: 480
+  mesprit: 481
+  azelf: 482
+  dialga: 483
+  palkia: 484
+  heatran: 485
+  regigigas: 486
+  giratina: 487
+  cresselia: 488
+  phione: 489
+  manaphy: 490
+  darkrai: 491
+  shaymin: 492
+  arceus: 493
+
+rules:
+  - id: trainer-no-legendary-details
+    roles: [trainer]
+    tools: [get_pokemon, get_pokemon_species, get_evolution_chain]
+    pokemon: *legendary
+    reason: >-
+      The trainer role cannot access detailed data on legendary or mythical Pokémon.
+      Ask a professor for this information.
