@@ -3,6 +3,8 @@
 from collections.abc import Iterable
 from typing import Protocol
 
+import pytest
+
 from pokedex_mcp.domain.errors import NotFound
 from pokedex_mcp.domain.models import (
     EvolutionChain,
@@ -13,6 +15,7 @@ from pokedex_mcp.domain.models import (
     PokemonSummary,
     PokemonType,
 )
+from tests.builders import make_evolution_chain, make_move, make_pokemon, make_species, make_type
 
 
 class _Identified(Protocol):
@@ -90,3 +93,24 @@ class FakePokedexRepository:
     async def get_move(self, key: str) -> Move:
         self._record("get_move", key)
         return _lookup(self._moves, "Move", key)
+
+
+def full_repository() -> FakePokedexRepository:
+    return FakePokedexRepository(
+        pokemon=[make_pokemon("bulbasaur", 1), make_pokemon("pikachu", 25)],
+        species=[make_species("pikachu", 25), make_species("tauros", 128, evolution_chain_id=None)],
+        types=[make_type()],
+        chains=[make_evolution_chain(10)],
+        moves=[make_move()],
+    )
+
+
+# Each param is a Callable[[PokedexRepository], Awaitable[object]].
+REPOSITORY_OPERATIONS: list[object] = [
+    pytest.param(lambda r: r.get_pokemon("pikachu"), id="get_pokemon"),
+    pytest.param(lambda r: r.get_species("pikachu"), id="get_species"),
+    pytest.param(lambda r: r.list_pokemon(20, 0), id="list_pokemon"),
+    pytest.param(lambda r: r.get_type("electric"), id="get_type"),
+    pytest.param(lambda r: r.get_evolution_chain(10), id="get_evolution_chain"),
+    pytest.param(lambda r: r.get_move("thunderbolt"), id="get_move"),
+]
