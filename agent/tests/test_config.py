@@ -94,3 +94,9 @@ def test_check_mcp_server_explains_how_to_start_it():
 
     with pytest.raises(SystemExit, match="uv run pokedex-mcp"):
         check_mcp_server("http://127.0.0.1:8000/mcp", transport=httpx.MockTransport(refuse))
+
+
+def test_role_can_fall_back_to_a_default(monkeypatch):
+    monkeypatch.delenv("POKEDEX_AGENT_ROLE", raising=False)
+
+    assert Settings.from_env(default_role="trainer").role == "trainer"

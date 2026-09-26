@@ -11,7 +11,7 @@ dependencies = [
 ]
 
 [project.scripts]
-pokedex-agent = "pokedex_agent.cli:main"
+pokedex-agent = "pokedex_agent.cli:run"
 
 [dependency-groups]
 dev = [

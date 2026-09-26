@@ -58,8 +58,8 @@ class Settings:
     mcp_url: str = "http://127.0.0.1:8000/mcp"
 
     @classmethod
-    def from_env(cls) -> Settings:
-        role = os.environ.get("POKEDEX_AGENT_ROLE")
+    def from_env(cls, default_role: str | None = None) -> Settings:
+        role = os.environ.get("POKEDEX_AGENT_ROLE", default_role)
         if not role:
             raise ValueError("set POKEDEX_AGENT_ROLE to 'trainer' or 'professor'")
         return cls(
