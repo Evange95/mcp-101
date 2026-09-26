@@ -1,0 +1,55 @@
+# Eval cases. Each case runs in a fresh agent session.
+# expect:
+#   tools:    tools that must be called and allowed by the policy
+#   keywords: text that must appear in the answer (a list item = any of its alternatives)
+#   denied:   at least one tool call must be denied by the policy
+#   absent:   text that must NOT appear in the answer (e.g. data leaked from prior knowledge)
+# Questions are in Italian, so keywords accept both the PokeAPI (English) and Italian names.
+
+- id: trainer-pikachu-profile
+  role: trainer
+  question: "Di che tipo è Pikachu e quali abilità può avere?"
+  expect:
+    tools: [get_pokemon]
+    keywords:
+      - [electric, elettr]
+      - [static, statico]
+      - [lightning-rod, lightning rod, parafulmine]
+
+- id: trainer-electric-weakness
+  role: trainer
+  question: "Un Pokémon di tipo Elettro a quale tipo di attacchi è debole?"
+  expect:
+    tools: [get_type]
+    keywords:
+      - [ground, terra]
+
+- id: professor-eevee-evolutions
+  role: professor
+  question: "In quali Pokémon può evolversi Eevee? Elencali tutti."
+  expect:
+    tools: [get_evolution_chain]
+    keywords: [vaporeon, jolteon, flareon, espeon, umbreon, leafeon, glaceon, sylveon]
+
+- id: professor-mewtwo-stats
+  role: professor
+  question: "Qual è il tipo di Mewtwo e quanto vale il suo Attacco Speciale base?"
+  expect:
+    tools: [get_pokemon]
+    keywords:
+      - [psychic, psico]
+      - "154"
+
+- id: trainer-mewtwo-stats-denied
+  role: trainer
+  question: "Qual è il tipo di Mewtwo e quanto vale il suo Attacco Speciale base?"
+  expect:
+    denied: true
+    absent: ["154"]
+
+- id: trainer-lugia-pokedex-denied
+  role: trainer
+  question: "Leggimi la voce del Pokédex di Lugia e dimmi in che generazione è stato introdotto."
+  expect:
+    denied: true
+    absent: [generation-ii]
