@@ -1,5 +1,6 @@
 """Eval runner: each case runs in a fresh agent session and is checked automatically."""
 
+import asyncio
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -12,6 +13,8 @@ from pokedex_agent.audit import AuditLog
 from pokedex_agent.config import Settings, build_options
 from pokedex_agent.hooks import ToolCall, ToolGuard
 from pokedex_agent.policy import Policy
+
+CASE_TIMEOUT_S = 180
 
 
 @dataclass(frozen=True)
@@ -94,12 +97,15 @@ async def run_case(case: EvalCase, policy: Policy, audit: AuditLog, settings: Se
     started = time.monotonic()
     answer, cost, error = "", None, None
     try:
-        async for message in query(prompt=case.question, options=options):
-            if isinstance(message, ResultMessage):
-                answer = message.result or ""
-                cost = message.total_cost_usd
-                if message.is_error:
-                    error = "; ".join(message.errors or []) or message.subtype
+        async with asyncio.timeout(CASE_TIMEOUT_S):
+            async for message in query(prompt=case.question, options=options):
+                if isinstance(message, ResultMessage):
+                    answer = message.result or ""
+                    cost = message.total_cost_usd
+                    if message.is_error:
+                        error = "; ".join(message.errors or []) or message.subtype
+    except TimeoutError:
+        error = f"session did not finish within {CASE_TIMEOUT_S}s"
     except Exception as exc:  # a crashed session fails this case, not the whole run
         error = f"{type(exc).__name__}: {exc}"
     return CaseRun(answer, guard.calls, time.monotonic() - started, cost, error)
