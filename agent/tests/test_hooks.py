@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -14,7 +15,7 @@ pytestmark = pytest.mark.anyio
 class DenyMewtwoPolicy:
     """Minimal stand-in for Policy: denies anything that mentions mewtwo."""
 
-    def evaluate(self, role, tool_name, tool_input):
+    def evaluate(self, role: str, tool_name: str, tool_input: dict[str, Any]) -> Decision:
         if tool_input.get("name_or_id") == "mewtwo":
             return Decision(False, "no-mewtwo", "Mewtwo is off limits.")
         return Decision(True)
@@ -44,7 +45,7 @@ def guard(audit_path: Path, clock: FakeClock) -> ToolGuard:
     return ToolGuard(DenyMewtwoPolicy(), role="trainer", audit=audit, clock=clock)
 
 
-def pre(tool_input: dict, tool_use_id: str = "toolu_1") -> dict:
+def pre(tool_input: dict[str, Any], tool_use_id: str = "toolu_1") -> dict[str, Any]:
     return {
         "hook_event_name": "PreToolUse",
         "session_id": "sess-1",
@@ -56,15 +57,15 @@ def pre(tool_input: dict, tool_use_id: str = "toolu_1") -> dict:
     }
 
 
-def post(tool_input: dict, tool_use_id: str = "toolu_1") -> dict:
+def post(tool_input: dict[str, Any], tool_use_id: str = "toolu_1") -> dict[str, Any]:
     return {**pre(tool_input, tool_use_id), "hook_event_name": "PostToolUse", "tool_response": {}}
 
 
-def audit_lines(path: Path) -> list[dict]:
+def audit_lines(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
-async def test_denied_call_returns_the_reason_to_the_model(guard):
+async def test_denied_call_returns_the_reason_to_the_model(guard: ToolGuard) -> None:
     output = await guard.pre_tool_use(pre({"name_or_id": "mewtwo"}), "toolu_1", None)
 
     assert output == {
@@ -76,7 +77,7 @@ async def test_denied_call_returns_the_reason_to_the_model(guard):
     }
 
 
-async def test_denied_call_is_audited(guard, audit_path):
+async def test_denied_call_is_audited(guard: ToolGuard, audit_path: Path) -> None:
     await guard.pre_tool_use(pre({"name_or_id": "mewtwo"}), "toolu_1", None)
 
     assert audit_lines(audit_path) == [
@@ -94,14 +95,18 @@ async def test_denied_call_is_audited(guard, audit_path):
     ]
 
 
-async def test_allowed_call_does_not_override_permissions(guard, audit_path):
+async def test_allowed_call_does_not_override_permissions(
+    guard: ToolGuard, audit_path: Path
+) -> None:
     output = await guard.pre_tool_use(pre({"name_or_id": "pikachu"}), "toolu_1", None)
 
     assert output == {}
-    assert not audit_path.exists()  # audited once the tool finishes
+    assert not audit_path.exists()  # noqa: ASYNC240 - audited once the tool finishes
 
 
-async def test_allowed_call_is_audited_with_its_duration(guard, audit_path, clock):
+async def test_allowed_call_is_audited_with_its_duration(
+    guard: ToolGuard, audit_path: Path, clock: FakeClock
+) -> None:
     await guard.pre_tool_use(pre({"name_or_id": "pikachu"}), "toolu_1", None)
     clock.now += 0.25
     await guard.post_tool_use(post({"name_or_id": "pikachu"}), "toolu_1", None)
@@ -113,7 +118,9 @@ async def test_allowed_call_is_audited_with_its_duration(guard, audit_path, cloc
     assert "error" not in line
 
 
-async def test_failed_call_is_audited_with_the_error(guard, audit_path, clock):
+async def test_failed_call_is_audited_with_the_error(
+    guard: ToolGuard, audit_path: Path, clock: FakeClock
+) -> None:
     await guard.pre_tool_use(pre({"name_or_id": "pikachu"}), "toolu_1", None)
     clock.now += 0.1
     failure = {**post({"name_or_id": "pikachu"}), "hook_event_name": "PostToolUseFailure"}
@@ -126,7 +133,7 @@ async def test_failed_call_is_audited_with_the_error(guard, audit_path, clock):
     assert line["duration_ms"] == 100.0
 
 
-async def test_guard_records_every_call_for_the_eval(guard):
+async def test_guard_records_every_call_for_the_eval(guard: ToolGuard) -> None:
     await guard.pre_tool_use(pre({"name_or_id": "mewtwo"}, "toolu_1"), "toolu_1", None)
     await guard.pre_tool_use(pre({"name_or_id": "pikachu"}, "toolu_2"), "toolu_2", None)
     await guard.post_tool_use(post({"name_or_id": "pikachu"}, "toolu_2"), "toolu_2", None)
@@ -137,8 +144,14 @@ async def test_guard_records_every_call_for_the_eval(guard):
     ]
 
 
-async def test_guard_exposes_sdk_hook_matchers(guard):
+async def test_guard_exposes_sdk_hook_matchers(guard: ToolGuard) -> None:
     hooks = guard.hooks()
 
     assert set(hooks) == {"PreToolUse", "PostToolUse", "PostToolUseFailure"}
     assert hooks["PreToolUse"][0].hooks == [guard.pre_tool_use]
+
+
+if TYPE_CHECKING:
+    from pokedex_agent.hooks import PolicyEvaluator
+
+    _: type[PolicyEvaluator] = DenyMewtwoPolicy

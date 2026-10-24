@@ -4,7 +4,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -80,3 +80,9 @@ class Policy:
             if rule.matches(role, tool, tool_input):
                 return Decision(False, rule.id, rule.reason)
         return Decision(True)
+
+
+if TYPE_CHECKING:
+    from pokedex_agent.hooks import PolicyEvaluator
+
+    _: type[PolicyEvaluator] = Policy

@@ -134,7 +134,19 @@ pytest without calling the Claude API or the network:
 ```bash
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
+uv run mypy                    # strict type checking of pokedex_agent/ and tests/
+uvx pyright                    # Pylance's engine, with deprecation warnings
 ```
+
+mypy is configured in `pyproject.toml` (`[tool.mypy]`): `strict = true` plus
+`disallow_untyped_defs`, `no_implicit_optional` and `warn_return_any` made explicit, on
+`pokedex_agent/` **and** `tests/`. Tests are fully annotated too: fixtures are typed
+(`guard: ToolGuard`, `monkeypatch: pytest.MonkeyPatch`, ...) and test functions return
+`-> None`. `types-pyyaml` provides the stubs for PyYAML. `[tool.pyright]` configures
+pyright (and VS Code's Pylance) with `reportDeprecated` on.
+
+Dependencies are pinned to exact versions in `pyproject.toml`. To upgrade, set the pins to
+the latest releases (`uv pip list --outdated` lists them), run `uv lock`, then all checks.
 
 ## Changing the policy
 

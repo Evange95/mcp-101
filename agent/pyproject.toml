@@ -5,7 +5,7 @@ description = "Demo agent (Claude Agent SDK) that explores Pokédex data through
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "claude-agent-sdk==0.2.159",
+    "claude-agent-sdk==0.2.174",
     "httpx==0.28.1",
     "pyyaml==6.0.3",
 ]
@@ -16,8 +16,10 @@ pokedex-agent = "pokedex_agent.cli:run"
 [dependency-groups]
 dev = [
     "anyio==4.15.1",
+    "mypy==2.4.0",
     "pytest==9.1.1",
-    "ruff==0.16.9",
+    "ruff==0.17.2",
+    "types-pyyaml==6.0.12.20260906",
 ]
 
 [build-system]
@@ -41,3 +43,19 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "ASYNC", "PT"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["pokedex_agent"]
+
+[tool.pyright]
+# Same engine as Pylance: VS Code picks this up, so editor and CLI report the same issues.
+include = ["pokedex_agent", "tests"]
+pythonVersion = "3.14"
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "standard"
+reportDeprecated = "warning"
+
+[tool.mypy]
+strict = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+warn_return_any = true
+files = ["pokedex_agent", "tests"]

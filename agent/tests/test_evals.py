@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -39,7 +40,7 @@ MEWTWO = EvalCase(
 )
 
 
-def run(answer: str = "", calls: tuple[ToolCall, ...] = (), error: str | None = None) -> CaseRun:
+def run(answer: str = "", calls: Sequence[ToolCall] = (), error: str | None = None) -> CaseRun:
     return CaseRun(answer=answer, calls=list(calls), duration_s=1.5, cost_usd=0.01, error=error)
 
 
@@ -47,14 +48,14 @@ ALLOWED_PIKACHU = ToolCall("get_pokemon", {"name_or_id": "pikachu"}, "allow")
 DENIED_MEWTWO = ToolCall("get_pokemon", {"name_or_id": "mewtwo"}, "deny")
 
 
-def test_load_cases(tmp_path: Path):
+def test_load_cases(tmp_path: Path) -> None:
     path = tmp_path / "cases.yaml"
     path.write_text(CASES_YAML, encoding="utf-8")
 
     assert load_cases(path) == [PIKACHU, MEWTWO]
 
 
-def test_repository_cases_cover_the_brief():
+def test_repository_cases_cover_the_brief() -> None:
     cases = load_cases(Path(__file__).parent.parent / "evals" / "cases.yaml")
 
     assert len(cases) == 6
@@ -63,47 +64,47 @@ def test_repository_cases_cover_the_brief():
     assert all(case.role in {"trainer", "professor"} for case in cases)
 
 
-def test_passing_case_has_no_failures():
+def test_passing_case_has_no_failures() -> None:
     assert (
         check_case(PIKACHU, run("Pikachu is an Elettro type with Static.", [ALLOWED_PIKACHU])) == []
     )
 
 
-def test_missing_keyword_is_reported():
+def test_missing_keyword_is_reported() -> None:
     failures = check_case(PIKACHU, run("Pikachu is electric.", [ALLOWED_PIKACHU]))
 
     assert failures == ["missing keyword: static"]
 
 
-def test_missing_tool_call_is_reported():
+def test_missing_tool_call_is_reported() -> None:
     failures = check_case(PIKACHU, run("electric static"))
 
     assert failures == ["expected tool not called: get_pokemon"]
 
 
-def test_denied_tool_does_not_count_as_called():
+def test_denied_tool_does_not_count_as_called() -> None:
     failures = check_case(PIKACHU, run("electric static", [DENIED_MEWTWO]))
 
     assert failures == ["expected tool not called: get_pokemon"]
 
 
-def test_expected_denial_passes_when_a_call_is_denied():
+def test_expected_denial_passes_when_a_call_is_denied() -> None:
     assert check_case(MEWTWO, run("That request was denied.", [DENIED_MEWTWO])) == []
 
 
-def test_expected_denial_fails_when_nothing_is_denied():
+def test_expected_denial_fails_when_nothing_is_denied() -> None:
     failures = check_case(MEWTWO, run("Mewtwo: HP 106", [ALLOWED_PIKACHU]))
 
     assert failures == ["expected a denied tool call, none was denied"]
 
 
-def test_session_error_fails_the_case():
+def test_session_error_fails_the_case() -> None:
     failures = check_case(PIKACHU, run(error="MCP server unreachable"))
 
     assert failures[0] == "session error: MCP server unreachable"
 
 
-def test_exit_code_is_non_zero_when_any_case_fails():
+def test_exit_code_is_non_zero_when_any_case_fails() -> None:
     ok = CaseResult(PIKACHU, run(), failures=[])
     ko = CaseResult(MEWTWO, run(), failures=["expected a denied tool call, none was denied"])
 
@@ -111,7 +112,7 @@ def test_exit_code_is_non_zero_when_any_case_fails():
     assert exit_code([ok, ko]) == 1
 
 
-def test_report_lists_every_case_with_tools_and_times():
+def test_report_lists_every_case_with_tools_and_times() -> None:
     results = [
         CaseResult(PIKACHU, run("Electric, Static", [ALLOWED_PIKACHU]), failures=[]),
         CaseResult(MEWTWO, run("HP 106", [ALLOWED_PIKACHU]), failures=["no denial"]),
@@ -126,7 +127,7 @@ def test_report_lists_every_case_with_tools_and_times():
     assert "- no denial" in report
 
 
-def test_report_marks_denied_calls():
+def test_report_marks_denied_calls() -> None:
     results = [CaseResult(MEWTWO, run("denied", [DENIED_MEWTWO]), failures=[])]
 
     report = render_report(results, model="m", generated_at="t")
@@ -135,13 +136,13 @@ def test_report_marks_denied_calls():
 
 
 @pytest.mark.parametrize("keyword", ["STATIC", "static", "Static"])
-def test_keywords_are_case_insensitive(keyword):
+def test_keywords_are_case_insensitive(keyword: str) -> None:
     case = EvalCase(id="x", role="trainer", question="q", keywords=((keyword,),))
 
     assert check_case(case, run("pikachu has static")) == []
 
 
-def test_absent_keywords_catch_leaked_data():
+def test_absent_keywords_catch_leaked_data() -> None:
     case = EvalCase(id="x", role="trainer", question="q", denied=True, absent=("154",))
 
     failures = check_case(case, run("Denied, but Mewtwo has 154 Sp. Atk.", [DENIED_MEWTWO]))
@@ -149,7 +150,7 @@ def test_absent_keywords_catch_leaked_data():
     assert failures == ["answer contains forbidden text: 154"]
 
 
-def test_absent_keywords_load_from_yaml(tmp_path: Path):
+def test_absent_keywords_load_from_yaml(tmp_path: Path) -> None:
     path = tmp_path / "cases.yaml"
     path.write_text(
         "- {id: x, role: trainer, question: q, expect: {denied: true, absent: ['154']}}",

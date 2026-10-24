@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from claude_agent_sdk import HookMatcher
+from claude_agent_sdk.types import HookEvent
 
 from pokedex_agent.audit import AuditLog
 from pokedex_agent.policy import MCP_TOOL_PREFIX, Decision
@@ -41,7 +42,7 @@ class ToolGuard:
         self._started: dict[str, float] = {}
         self.calls: list[ToolCall] = []
 
-    def hooks(self) -> dict[str, list[HookMatcher]]:
+    def hooks(self) -> dict[HookEvent, list[HookMatcher]]:
         # matcher=None: every tool goes through the guard, not only the MCP ones.
         return {
             "PreToolUse": [HookMatcher(matcher=None, hooks=[self.pre_tool_use])],
