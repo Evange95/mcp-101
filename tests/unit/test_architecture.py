@@ -6,13 +6,15 @@ from pathlib import Path
 
 import pytest
 
-PACKAGE = Path(__file__).parents[2] / "src" / "pokedex_mcp"
+ROOT = "pokedex_mcp"
+PACKAGE = Path(__file__).parents[2] / "src" / ROOT
+CATALOGS = sorted(p.name for p in (PACKAGE / "catalogs").iterdir() if (p / "__init__.py").exists())
 
 
-def imported_modules(layer: str) -> dict[str, set[str]]:
-    """Map each module of `layer` to the absolute module names it imports."""
+def imported_modules(directory: Path) -> dict[str, set[str]]:
+    """Map each module under `directory` to the absolute module names it imports."""
     imports: dict[str, set[str]] = {}
-    for path in (PACKAGE / layer).rglob("*.py"):
+    for path in directory.rglob("*.py"):
         names: set[str] = set()
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.Import):
@@ -23,33 +25,43 @@ def imported_modules(layer: str) -> dict[str, set[str]]:
     return imports
 
 
-def violations(layer: str, forbidden: tuple[str, ...]) -> list[str]:
+def violations(directory: Path, forbidden: tuple[str, ...]) -> list[str]:
     return sorted(
         f"{module} imports {name}"
-        for module, names in imported_modules(layer).items()
+        for module, names in imported_modules(directory).items()
         for name in names
         if name.startswith(forbidden)
     )
 
 
+def test_platform_imports_no_catalog():
+    assert violations(PACKAGE / "platform", (f"{ROOT}.catalogs",)) == []
+
+
+@pytest.mark.parametrize("catalog", CATALOGS)
+def test_catalogs_do_not_import_each_other(catalog):
+    others = tuple(f"{ROOT}.catalogs.{other}" for other in CATALOGS if other != catalog)
+    assert violations(PACKAGE / "catalogs" / catalog, others) == []
+
+
+@pytest.mark.parametrize("catalog", CATALOGS)
 @pytest.mark.parametrize(
-    ("layer", "forbidden"),
-    [
-        ("platform", ("pokedex_mcp.domain", "pokedex_mcp.application", "pokedex_mcp.adapters")),
-        ("application", ("pokedex_mcp.adapters", "pokedex_mcp.platform")),
-        ("domain", ("pokedex_mcp.application", "pokedex_mcp.adapters", "pokedex_mcp.platform")),
-    ],
+    ("layer", "outer_layers"),
+    [("application", ("adapters",)), ("domain", ("application", "adapters"))],
 )
-def test_inner_layers_do_not_import_outer_ones(layer, forbidden):
-    assert violations(layer, forbidden) == []
+def test_inner_layers_do_not_import_outer_ones(catalog, layer, outer_layers):
+    base = f"{ROOT}.catalogs.{catalog}"
+    forbidden = (*(f"{base}.{outer}" for outer in outer_layers), f"{ROOT}.platform")
+    assert violations(PACKAGE / "catalogs" / catalog / layer, forbidden) == []
 
 
-def test_domain_imports_only_the_standard_library_and_itself():
+@pytest.mark.parametrize("catalog", CATALOGS)
+def test_domain_imports_only_the_standard_library_and_itself(catalog):
+    own_domain = f"{ROOT}.catalogs.{catalog}.domain"
     third_party = sorted(
         f"{module} imports {name}"
-        for module, names in imported_modules("domain").items()
+        for module, names in imported_modules(PACKAGE / "catalogs" / catalog / "domain").items()
         for name in names
-        if name.split(".")[0] not in sys.stdlib_module_names
-        and not name.startswith("pokedex_mcp.domain")
+        if name.split(".")[0] not in sys.stdlib_module_names and not name.startswith(own_domain)
     )
     assert third_party == []

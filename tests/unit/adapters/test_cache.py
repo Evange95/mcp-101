@@ -1,7 +1,7 @@
 import pytest
 
-from pokedex_mcp.adapters.outbound.cache import CachedPokedexRepository
-from pokedex_mcp.domain.errors import PokedexUnavailable
+from pokedex_mcp.catalogs.pokedex.adapters.outbound.cache import CachedPokedexRepository
+from pokedex_mcp.catalogs.pokedex.domain.errors import PokedexUnavailable
 from tests.builders import make_pokemon
 from tests.fakes import (
     REPOSITORY_OPERATIONS,

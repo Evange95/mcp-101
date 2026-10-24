@@ -9,8 +9,8 @@ from opentelemetry import trace
 from opentelemetry.metrics import MeterProvider
 from opentelemetry.trace import Span, StatusCode, TracerProvider
 
-from pokedex_mcp.application.probes import Lookup, LookupProbe
-from pokedex_mcp.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
+from pokedex_mcp.catalogs.pokedex.application.probes import Lookup, LookupProbe
+from pokedex_mcp.catalogs.pokedex.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
 
 SCOPE = "pokedex_mcp"
 MAX_QUERY_LENGTH = 100
@@ -152,8 +152,8 @@ class OtelPokeApiProbe:
 
 
 if TYPE_CHECKING:
-    from pokedex_mcp.adapters.outbound.probes import PokeApiProbe
-    from pokedex_mcp.application.probes import PokedexProbe
+    from pokedex_mcp.catalogs.pokedex.adapters.outbound.probes import PokeApiProbe
+    from pokedex_mcp.catalogs.pokedex.application.probes import PokedexProbe
     from pokedex_mcp.platform.resilience.cache import CacheProbe
     from pokedex_mcp.platform.resilience.retry import RetryProbe
 

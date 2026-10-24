@@ -9,7 +9,7 @@ from collections.abc import Generator
 from contextlib import AbstractContextManager, contextmanager
 from typing import TYPE_CHECKING, Literal, Protocol
 
-from pokedex_mcp.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
+from pokedex_mcp.catalogs.pokedex.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
 
 type Lookup = Literal["pokemon", "species", "pokemon_list", "type", "evolution_chain", "move"]
 

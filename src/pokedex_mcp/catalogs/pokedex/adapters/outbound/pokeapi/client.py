@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 import httpx
 from pydantic import BaseModel, ValidationError
 
-from pokedex_mcp.adapters.outbound.pokeapi.mappers import (
+from pokedex_mcp.catalogs.pokedex.adapters.outbound.pokeapi.mappers import (
     to_evolution_chain,
     to_move,
     to_page,
@@ -13,7 +13,7 @@ from pokedex_mcp.adapters.outbound.pokeapi.mappers import (
     to_species,
     to_type,
 )
-from pokedex_mcp.adapters.outbound.pokeapi.schemas import (
+from pokedex_mcp.catalogs.pokedex.adapters.outbound.pokeapi.schemas import (
     EvolutionChainDTO,
     MoveDTO,
     PokemonDTO,
@@ -21,9 +21,9 @@ from pokedex_mcp.adapters.outbound.pokeapi.schemas import (
     SpeciesDTO,
     TypeDTO,
 )
-from pokedex_mcp.adapters.outbound.probes import NullPokeApiProbe, PokeApiProbe
-from pokedex_mcp.domain.errors import NotFound, PokedexUnavailable
-from pokedex_mcp.domain.models import (
+from pokedex_mcp.catalogs.pokedex.adapters.outbound.probes import NullPokeApiProbe, PokeApiProbe
+from pokedex_mcp.catalogs.pokedex.domain.errors import NotFound, PokedexUnavailable
+from pokedex_mcp.catalogs.pokedex.domain.models import (
     EvolutionChain,
     Move,
     Pokemon,
@@ -109,6 +109,6 @@ class PokeApiRepository:
 
 
 if TYPE_CHECKING:
-    from pokedex_mcp.application.ports import PokedexRepository
+    from pokedex_mcp.catalogs.pokedex.application.ports import PokedexRepository
 
     _: type[PokedexRepository] = PokeApiRepository

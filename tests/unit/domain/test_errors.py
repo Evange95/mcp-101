@@ -1,4 +1,9 @@
-from pokedex_mcp.domain.errors import InvalidQuery, NotFound, PokedexError, PokedexUnavailable
+from pokedex_mcp.catalogs.pokedex.domain.errors import (
+    InvalidQuery,
+    NotFound,
+    PokedexError,
+    PokedexUnavailable,
+)
 
 
 def test_not_found_names_resource_and_key():

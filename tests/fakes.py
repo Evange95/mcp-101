@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING, Protocol
 
 import pytest
 
-from pokedex_mcp.application.probes import Lookup, LookupProbe
-from pokedex_mcp.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
-from pokedex_mcp.domain.models import (
+from pokedex_mcp.catalogs.pokedex.application.probes import Lookup, LookupProbe
+from pokedex_mcp.catalogs.pokedex.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
+from pokedex_mcp.catalogs.pokedex.domain.models import (
     EvolutionChain,
     Move,
     Pokemon,
@@ -177,9 +177,9 @@ REPOSITORY_OPERATIONS: list[object] = [
 
 
 if TYPE_CHECKING:
-    from pokedex_mcp.adapters.outbound.probes import PokeApiProbe
-    from pokedex_mcp.application.ports import PokedexRepository
-    from pokedex_mcp.application.probes import PokedexProbe
+    from pokedex_mcp.catalogs.pokedex.adapters.outbound.probes import PokeApiProbe
+    from pokedex_mcp.catalogs.pokedex.application.ports import PokedexRepository
+    from pokedex_mcp.catalogs.pokedex.application.probes import PokedexProbe
     from pokedex_mcp.platform.resilience.cache import CacheProbe
     from pokedex_mcp.platform.resilience.retry import RetryProbe
 

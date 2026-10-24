@@ -1,6 +1,6 @@
 """Pure functions translating PokeAPI DTOs into domain entities."""
 
-from pokedex_mcp.adapters.outbound.pokeapi.schemas import (
+from pokedex_mcp.catalogs.pokedex.adapters.outbound.pokeapi.schemas import (
     ChainLinkDTO,
     EvolutionChainDTO,
     MoveDTO,
@@ -10,7 +10,7 @@ from pokedex_mcp.adapters.outbound.pokeapi.schemas import (
     SpeciesDTO,
     TypeDTO,
 )
-from pokedex_mcp.domain.models import (
+from pokedex_mcp.catalogs.pokedex.domain.models import (
     EvolutionChain,
     EvolutionStage,
     Move,

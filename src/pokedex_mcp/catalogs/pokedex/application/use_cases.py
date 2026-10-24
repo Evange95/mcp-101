@@ -5,10 +5,15 @@ import unicodedata
 from collections.abc import Generator
 from contextlib import contextmanager
 
-from pokedex_mcp.application.ports import PokedexRepository
-from pokedex_mcp.application.probes import Lookup, LookupProbe, NullPokedexProbe, PokedexProbe
-from pokedex_mcp.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
-from pokedex_mcp.domain.models import (
+from pokedex_mcp.catalogs.pokedex.application.ports import PokedexRepository
+from pokedex_mcp.catalogs.pokedex.application.probes import (
+    Lookup,
+    LookupProbe,
+    NullPokedexProbe,
+    PokedexProbe,
+)
+from pokedex_mcp.catalogs.pokedex.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
+from pokedex_mcp.catalogs.pokedex.domain.models import (
     EvolutionChain,
     Move,
     Pokemon,

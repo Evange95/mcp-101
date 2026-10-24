@@ -3,8 +3,8 @@
 import time
 from typing import TYPE_CHECKING
 
-from pokedex_mcp.application.ports import PokedexRepository
-from pokedex_mcp.domain.models import (
+from pokedex_mcp.catalogs.pokedex.application.ports import PokedexRepository
+from pokedex_mcp.catalogs.pokedex.domain.models import (
     EvolutionChain,
     Move,
     Pokemon,

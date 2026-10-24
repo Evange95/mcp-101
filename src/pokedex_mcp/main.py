@@ -8,13 +8,13 @@ import uvicorn
 from fastapi import FastAPI
 from mcp.server.transport_security import TransportSecuritySettings
 
-from pokedex_mcp.adapters.inbound.mcp.server import build_mcp_server
-from pokedex_mcp.adapters.outbound.cache import CachedPokedexRepository
-from pokedex_mcp.adapters.outbound.pokeapi.client import PokeApiRepository
-from pokedex_mcp.adapters.outbound.retry import RetryingPokedexRepository
-from pokedex_mcp.adapters.outbound.telemetry.probes import Probes, build_probes
-from pokedex_mcp.application.ports import PokedexRepository
-from pokedex_mcp.application.use_cases import PokedexService
+from pokedex_mcp.catalogs.pokedex.adapters.inbound.mcp.server import build_mcp_server
+from pokedex_mcp.catalogs.pokedex.adapters.outbound.cache import CachedPokedexRepository
+from pokedex_mcp.catalogs.pokedex.adapters.outbound.pokeapi.client import PokeApiRepository
+from pokedex_mcp.catalogs.pokedex.adapters.outbound.retry import RetryingPokedexRepository
+from pokedex_mcp.catalogs.pokedex.adapters.outbound.telemetry.probes import Probes, build_probes
+from pokedex_mcp.catalogs.pokedex.application.ports import PokedexRepository
+from pokedex_mcp.catalogs.pokedex.application.use_cases import PokedexService
 from pokedex_mcp.config import Settings
 from pokedex_mcp.platform.health import build_health_router
 from pokedex_mcp.platform.lifecycle import Lifecycle

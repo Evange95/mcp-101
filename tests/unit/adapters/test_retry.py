@@ -1,8 +1,8 @@
 import pytest
 from tenacity import wait_none
 
-from pokedex_mcp.adapters.outbound.retry import RetryingPokedexRepository
-from pokedex_mcp.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
+from pokedex_mcp.catalogs.pokedex.adapters.outbound.retry import RetryingPokedexRepository
+from pokedex_mcp.catalogs.pokedex.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
 from tests.builders import make_pokemon
 from tests.fakes import (
     REPOSITORY_OPERATIONS,

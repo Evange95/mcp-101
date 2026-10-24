@@ -1,8 +1,8 @@
 import pytest
 
-from pokedex_mcp.application.use_cases import MAX_PAGE_SIZE, PokedexService
-from pokedex_mcp.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
-from pokedex_mcp.domain.models import PokemonSummary
+from pokedex_mcp.catalogs.pokedex.application.use_cases import MAX_PAGE_SIZE, PokedexService
+from pokedex_mcp.catalogs.pokedex.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
+from pokedex_mcp.catalogs.pokedex.domain.models import PokemonSummary
 from tests.builders import (
     make_evolution_chain,
     make_move,

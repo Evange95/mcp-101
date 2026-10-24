@@ -4,9 +4,9 @@ import pytest
 from mcp import Client
 from mcp.types import CallToolResult, TextContent
 
-from pokedex_mcp.adapters.inbound.mcp.server import build_mcp_server
-from pokedex_mcp.application.use_cases import PokedexService
-from pokedex_mcp.domain.errors import PokedexUnavailable
+from pokedex_mcp.catalogs.pokedex.adapters.inbound.mcp.server import build_mcp_server
+from pokedex_mcp.catalogs.pokedex.application.use_cases import PokedexService
+from pokedex_mcp.catalogs.pokedex.domain.errors import PokedexUnavailable
 from tests.fakes import FakePokedexRepository, full_repository
 
 pytestmark = pytest.mark.anyio

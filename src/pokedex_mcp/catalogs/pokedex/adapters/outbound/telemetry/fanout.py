@@ -4,9 +4,9 @@ from collections.abc import Generator
 from contextlib import ExitStack, contextmanager
 from typing import TYPE_CHECKING
 
-from pokedex_mcp.adapters.outbound.probes import PokeApiProbe
-from pokedex_mcp.application.probes import Lookup, LookupProbe, PokedexProbe
-from pokedex_mcp.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
+from pokedex_mcp.catalogs.pokedex.adapters.outbound.probes import PokeApiProbe
+from pokedex_mcp.catalogs.pokedex.application.probes import Lookup, LookupProbe, PokedexProbe
+from pokedex_mcp.catalogs.pokedex.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
 from pokedex_mcp.platform.resilience.cache import CacheProbe
 from pokedex_mcp.platform.resilience.retry import RetryProbe
 

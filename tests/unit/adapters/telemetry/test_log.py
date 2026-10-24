@@ -2,15 +2,15 @@ import logging
 
 import pytest
 
-from pokedex_mcp.adapters.outbound.telemetry.fanout import FanOutPokedexProbe
-from pokedex_mcp.adapters.outbound.telemetry.log import (
+from pokedex_mcp.catalogs.pokedex.adapters.outbound.telemetry.fanout import FanOutPokedexProbe
+from pokedex_mcp.catalogs.pokedex.adapters.outbound.telemetry.log import (
     LoggingCacheProbe,
     LoggingPokeApiProbe,
     LoggingPokedexProbe,
     LoggingRetryProbe,
 )
-from pokedex_mcp.application.use_cases import PokedexService
-from pokedex_mcp.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
+from pokedex_mcp.catalogs.pokedex.application.use_cases import PokedexService
+from pokedex_mcp.catalogs.pokedex.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
 from tests.fakes import RecordingPokedexProbe, full_repository
 
 pytestmark = pytest.mark.anyio

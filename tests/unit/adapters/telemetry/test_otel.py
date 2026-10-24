@@ -10,14 +10,14 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import StatusCode
 
-from pokedex_mcp.adapters.outbound.cache import CachedPokedexRepository
-from pokedex_mcp.adapters.outbound.telemetry.otel import (
+from pokedex_mcp.catalogs.pokedex.adapters.outbound.cache import CachedPokedexRepository
+from pokedex_mcp.catalogs.pokedex.adapters.outbound.telemetry.otel import (
     OtelCacheProbe,
     OtelPokedexProbe,
     OtelRetryProbe,
 )
-from pokedex_mcp.application.use_cases import PokedexService
-from pokedex_mcp.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
+from pokedex_mcp.catalogs.pokedex.application.use_cases import PokedexService
+from pokedex_mcp.catalogs.pokedex.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
 from tests.fakes import FakePokedexRepository, full_repository
 
 pytestmark = pytest.mark.anyio

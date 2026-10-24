@@ -1,6 +1,6 @@
 """Builders for domain objects shared across the test suite."""
 
-from pokedex_mcp.domain.models import (
+from pokedex_mcp.catalogs.pokedex.domain.models import (
     EvolutionChain,
     EvolutionStage,
     Move,

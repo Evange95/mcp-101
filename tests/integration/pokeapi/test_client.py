@@ -4,9 +4,9 @@ import httpx
 import pytest
 import respx
 
-from pokedex_mcp.adapters.outbound.pokeapi.client import PokeApiRepository
-from pokedex_mcp.domain.errors import NotFound, PokedexUnavailable
-from pokedex_mcp.domain.models import (
+from pokedex_mcp.catalogs.pokedex.adapters.outbound.pokeapi.client import PokeApiRepository
+from pokedex_mcp.catalogs.pokedex.domain.errors import NotFound, PokedexUnavailable
+from pokedex_mcp.catalogs.pokedex.domain.models import (
     EvolutionChain,
     EvolutionStage,
     Move,

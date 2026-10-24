@@ -2,7 +2,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from pokedex_mcp.domain.models import EvolutionStage
+from pokedex_mcp.catalogs.pokedex.domain.models import EvolutionStage
 from tests.builders import make_evolution_chain, make_pokemon
 
 

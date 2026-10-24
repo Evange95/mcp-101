@@ -4,7 +4,7 @@ from typing import Self
 
 from pydantic import BaseModel
 
-from pokedex_mcp.domain.models import (
+from pokedex_mcp.catalogs.pokedex.domain.models import (
     EvolutionChain,
     EvolutionStage,
     Move,

@@ -16,10 +16,21 @@ data to LLM clients, hosted in a FastAPI app (Streamable HTTP at `/mcp`).
 
 ## Architecture
 
-Hexagonal (ports & adapters). Dependencies point inwards: adapters depend on the
-application, the application depends on the domain, the domain depends on nothing.
+Two levels:
+
+- **Catalogs** (`catalogs/<name>/`): one bounded context per data source, each hexagonal
+  (ports & adapters) with its own domain, use cases, adapters and MCP tools. Today:
+  `pokedex`. Catalogs never import each other.
+- **Platform** (`platform/`): infrastructure shared by every catalog (lifecycle, health,
+  graceful shutdown, telemetry bootstrap, generic cache and retry). It never imports a
+  catalog.
+
+Inside a catalog, dependencies point inwards: adapters depend on the application, the
+application depends on the domain, the domain depends on nothing.
+`tests/unit/test_architecture.py` enforces all of these rules on the import graph.
 
 ```
+catalogs/pokedex/
 adapters/inbound/mcp  ──▶  application (PokedexService)  ──▶  PokedexRepository port
                                   │                                ▲
                                   ▼                                │
@@ -29,31 +40,33 @@ adapters/inbound/mcp  ──▶  application (PokedexService)  ──▶  Pokede
                      adapters/outbound/telemetry ◀── CacheProbe, RetryProbe, PokeApiProbe
                      (logs + OpenTelemetry)
 domain/  — pure-Python entities and errors, no third-party imports
-platform/ — shared infrastructure, no domain imports: lifecycle, /livez + /readyz,
-            GracefulServer, OTel SDK bootstrap, console logging
-main.py  — composition root (FastAPI app, /mcp, telemetry wiring, run())
+
+platform/ — lifecycle, /livez + /readyz, GracefulServer, OTel SDK bootstrap, console
+            logging, TtlLruCache, RetryPolicy (+ CacheProbe, RetryProbe)
+main.py   — composition root (FastAPI app, /mcp, telemetry wiring, run())
 ```
 
 ```
 src/pokedex_mcp/
-  domain/                     models.py (frozen dataclasses), errors.py (NotFound, InvalidQuery,
+  catalogs/
+    pokedex/                  the Pokédex catalog (PokeAPI)
+      domain/                 models.py (frozen dataclasses), errors.py (NotFound, InvalidQuery,
                               PokedexUnavailable)
-  application/
-    ports.py                  PokedexRepository: what the core needs to read Pokédex data
-    probes.py                 PokedexProbe / LookupProbe: what the core announces (observability port)
-    use_cases.py              PokedexService: key normalization, validation, orchestration
-  adapters/
-    inbound/mcp/              MCP tools (server.py) and their output schemas (schemas.py)
-    outbound/
-      pokeapi/                PokeApiRepository: httpx client, DTOs, DTO → domain mappers
-      retry.py                RetryingPokedexRepository: one line per method over RetryPolicy;
+      application/
+        ports.py              PokedexRepository: what the core needs to read Pokédex data
+        probes.py             PokedexProbe / LookupProbe: what the core announces (observability port)
+        use_cases.py          PokedexService: key normalization, validation, orchestration
+      adapters/
+        inbound/mcp/          MCP tools (server.py) and their output schemas (schemas.py)
+        outbound/
+          pokeapi/            PokeApiRepository: httpx client, DTOs, DTO → domain mappers
+          retry.py            RetryingPokedexRepository: one line per method over RetryPolicy;
                               decides which errors are transient (retryable PokedexUnavailable)
-      cache.py                CachedPokedexRepository: one line per method over TtlLruCache;
+          cache.py            CachedPokedexRepository: one line per method over TtlLruCache;
                               decides the cache key of each operation
-      probes.py               PokeApiProbe (+ Null implementation)
-      telemetry/              Pokédex probe implementations: logs, OTel, fan-out (see below)
-  platform/                   infrastructure shared by every catalog; imports no domain,
-                              application or adapter code (enforced by tests/unit/test_architecture.py)
+          probes.py           PokeApiProbe (+ Null implementation)
+          telemetry/          Pokédex probe implementations: logs, OTel, fan-out (see below)
+  platform/                   infrastructure shared by every catalog; imports no catalog
     lifecycle.py              Lifecycle phases (starting → ready → draining → stopping)
     health.py                 /livez, /readyz, /health
     server.py                 GracefulServer: drain on SIGTERM + graceful shutdown
@@ -101,18 +114,18 @@ or a metric is decided by adapters. Why do it this way:
   (`tests/fakes.py`), without configuring any SDK.
 - **Swappable backends.** Logs and OpenTelemetry are two adapters behind the same port;
   adding another backend (or removing OTel) does not touch the core.
-- **Layering preserved.** `domain/` and `application/` never import `logging`,
+- **Layering preserved.** A catalog's `domain/` and `application/` never import `logging`,
   `opentelemetry` or any other observability library.
 
 ### Probes (the ports)
 
 | Probe | Defined in | Announcements |
 |---|---|---|
-| `PokedexProbe.lookup(lookup, query)` → `LookupProbe` | `application/probes.py` | context manager bracketing one lookup |
-| `LookupProbe` | `application/probes.py` | `query_normalized(key)`, `found()`, `not_found(error)`, `query_rejected(error)`, `source_unavailable(error)` |
+| `PokedexProbe.lookup(lookup, query)` → `LookupProbe` | `catalogs/pokedex/application/probes.py` | context manager bracketing one lookup |
+| `LookupProbe` | `catalogs/pokedex/application/probes.py` | `query_normalized(key)`, `found()`, `not_found(error)`, `query_rejected(error)`, `source_unavailable(error)` |
 | `CacheProbe` | `platform/resilience/cache.py` | `hit(resource)`, `miss(resource, expired=)`, `evicted(resource)` |
 | `RetryProbe` | `platform/resilience/retry.py` | `retry_scheduled(attempt=, reason=, wait_seconds=)` — `reason` comes from the caller's `reason` function (for the Pokédex: `PokedexUnavailable.reason`) |
-| `PokeApiProbe` | `adapters/outbound/probes.py` | `unexpected_payload(resource, path, error)` |
+| `PokeApiProbe` | `catalogs/pokedex/adapters/outbound/probes.py` | `unexpected_payload(resource, path, error)` |
 
 `lookup` is one of `pokemon`, `species`, `pokemon_list`, `type`, `evolution_chain`, `move`.
 Every probe has a `Null…` implementation used as the constructor default, so any class can
@@ -120,7 +133,7 @@ be built without observability (as most tests do).
 
 ### Implementations (the adapters)
 
-Pokédex probes, in `adapters/outbound/telemetry/`:
+Pokédex probes, in `catalogs/pokedex/adapters/outbound/telemetry/`:
 
 | Module | Role |
 |---|---|
@@ -242,8 +255,8 @@ If no collector is reachable the server keeps working; the exporters only log wa
 
 ### Adding a new announcement
 
-1. Add a method in the business language to the probe protocol (`application/probes.py`
-   for the core, `adapters/outbound/probes.py` for the PokeAPI adapter,
+1. Add a method in the business language to the probe protocol (`catalogs/pokedex/application/probes.py`
+   for the core, `catalogs/pokedex/adapters/outbound/probes.py` for the PokeAPI adapter,
    `platform/resilience/` for cache and retry) and to its `Null…` class.
 2. Call it from the code where the event happens. Nothing else in that code changes.
 3. Implement it in `log.py` (pick a level), `otel.py` (span attribute/event and/or metric,
@@ -482,7 +495,7 @@ uv run pytest -m live                           # contract test against the real
 | `tests/integration/test_app.py`, `test_mcp_server.py` | full FastAPI + MCP app, tools end to end | HTTP mocked with `respx` |
 | `tests/integration/test_telemetry.py` | one tool call → one trace (HTTP → MCP → lookup → PokeAPI), logs correlated | in-memory exporters |
 | `tests/unit/platform` | lifecycle phases; drain logic of `GracefulServer`; `TtlLruCache` and `RetryPolicy` with plain values (no Pokédex types) | none (fake clock) |
-| `tests/unit/test_architecture.py` | layering: `platform/` and `application/` import no outer layer, `domain/` only the standard library | none (reads the source) |
+| `tests/unit/test_architecture.py` | layering: `platform/` imports no catalog, catalogs don't import each other, in each catalog `application/` imports no adapters or platform and `domain/` only the standard library | none (reads the source) |
 | `tests/integration/test_health.py` | `/livez` and `/readyz` in every phase, failing checks | in-process app |
 | `tests/integration/test_shutdown.py` | a real server process gets SIGTERM: drains, exits 0, flushes telemetry to a fake OTLP collector | localhost subprocess (~5 s) |
 | `tests/live` | real PokeAPI still matches our DTOs | network, opt-in |

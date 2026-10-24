@@ -9,7 +9,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from pokedex_mcp.adapters.inbound.mcp.schemas import (
+from pokedex_mcp.catalogs.pokedex.adapters.inbound.mcp.schemas import (
     EvolutionChainOut,
     MoveOut,
     PokemonOut,
@@ -17,8 +17,8 @@ from pokedex_mcp.adapters.inbound.mcp.schemas import (
     SpeciesOut,
     TypeOut,
 )
-from pokedex_mcp.application.use_cases import MAX_PAGE_SIZE, PokedexService
-from pokedex_mcp.domain.errors import PokedexError
+from pokedex_mcp.catalogs.pokedex.application.use_cases import MAX_PAGE_SIZE, PokedexService
+from pokedex_mcp.catalogs.pokedex.domain.errors import PokedexError
 
 INSTRUCTIONS = (
     "Pokédex data from PokeAPI. Look up Pokémon by English name or National Pokédex number, "

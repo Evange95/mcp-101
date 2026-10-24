@@ -3,7 +3,7 @@
 import httpx
 import pytest
 
-from pokedex_mcp.adapters.outbound.pokeapi.client import PokeApiRepository
+from pokedex_mcp.catalogs.pokedex.adapters.outbound.pokeapi.client import PokeApiRepository
 
 pytestmark = [pytest.mark.anyio, pytest.mark.live]
 

@@ -4,9 +4,9 @@ from typing import TYPE_CHECKING
 
 from tenacity.wait import wait_base
 
-from pokedex_mcp.application.ports import PokedexRepository
-from pokedex_mcp.domain.errors import PokedexUnavailable
-from pokedex_mcp.domain.models import (
+from pokedex_mcp.catalogs.pokedex.application.ports import PokedexRepository
+from pokedex_mcp.catalogs.pokedex.domain.errors import PokedexUnavailable
+from pokedex_mcp.catalogs.pokedex.domain.models import (
     EvolutionChain,
     Move,
     Pokemon,
