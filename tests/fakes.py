@@ -1,11 +1,13 @@
-"""In-memory test double for the PokedexRepository output port."""
+"""In-memory test doubles for the PokedexRepository port and the probes."""
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from typing import Protocol
 
 import pytest
 
-from pokedex_mcp.domain.errors import NotFound
+from pokedex_mcp.application.probes import Lookup, LookupProbe
+from pokedex_mcp.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
 from pokedex_mcp.domain.models import (
     EvolutionChain,
     Move,
@@ -93,6 +95,66 @@ class FakePokedexRepository:
     async def get_move(self, key: str) -> Move:
         self._record("get_move", key)
         return _lookup(self._moves, "Move", key)
+
+
+class _RecordingLookupProbe:
+    def __init__(self, events: list[str], lookup: Lookup) -> None:
+        self._events = events
+        self._lookup = lookup
+
+    def query_normalized(self, key: str) -> None:
+        self._events.append(f"{self._lookup}: normalized {key}")
+
+    def found(self) -> None:
+        self._events.append(f"{self._lookup}: found")
+
+    def not_found(self, error: NotFound) -> None:
+        self._events.append(f"{self._lookup}: not found {error.resource}")
+
+    def query_rejected(self, error: InvalidQuery) -> None:
+        self._events.append(f"{self._lookup}: rejected")
+
+    def source_unavailable(self, error: PokedexUnavailable) -> None:
+        self._events.append(f"{self._lookup}: unavailable")
+
+
+class RecordingPokedexProbe:
+    """Records lookup announcements as readable lines, in order."""
+
+    def __init__(self) -> None:
+        self.events: list[str] = []
+
+    @contextmanager
+    def lookup(self, lookup: Lookup, query: str) -> Iterator[LookupProbe]:
+        self.events.append(f"{lookup}: started {query}")
+        try:
+            yield _RecordingLookupProbe(self.events, lookup)
+        finally:
+            self.events.append(f"{lookup}: ended")
+
+
+class RecordingAdapterProbe:
+    """Records cache, retry and PokeAPI announcements (one double for all three probes)."""
+
+    def __init__(self) -> None:
+        self.events: list[str] = []
+
+    def hit(self, resource: str) -> None:
+        self.events.append(f"hit {resource}")
+
+    def miss(self, resource: str, *, expired: bool) -> None:
+        self.events.append(f"{'expired' if expired else 'miss'} {resource}")
+
+    def evicted(self, resource: str) -> None:
+        self.events.append(f"evicted {resource}")
+
+    def retry_scheduled(
+        self, *, attempt: int, error: PokedexUnavailable, wait_seconds: float
+    ) -> None:
+        self.events.append(f"retry after attempt {attempt}: {error.reason}")
+
+    def unexpected_payload(self, resource: str, path: str, error: Exception) -> None:
+        self.events.append(f"unexpected payload {resource} {path}")
 
 
 def full_repository() -> FakePokedexRepository:

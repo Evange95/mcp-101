@@ -18,6 +18,7 @@ from pokedex_mcp.domain.models import (
     PokemonType,
 )
 from tests.data import load_json
+from tests.fakes import RecordingAdapterProbe
 
 pytestmark = pytest.mark.anyio
 
@@ -211,3 +212,14 @@ async def test_not_found_names_the_resource(repository, pokeapi, path, call, mes
 
     with pytest.raises(NotFound, match=message):
         await call(repository)
+
+
+async def test_unexpected_payload_is_reported_to_the_probe(pokeapi):
+    pokeapi.get("/pokemon/pikachu").respond(json={"unexpected": True})
+    probe = RecordingAdapterProbe()
+
+    async with httpx.AsyncClient(base_url=BASE_URL) as http:
+        with pytest.raises(PokedexUnavailable):
+            await PokeApiRepository(http, probe=probe).get_pokemon("pikachu")
+
+    assert probe.events == ["unexpected payload Pokémon pokemon/pikachu"]

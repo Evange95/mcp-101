@@ -1,7 +1,7 @@
 import pytest
 
 from pokedex_mcp.application.use_cases import MAX_PAGE_SIZE, PokedexService
-from pokedex_mcp.domain.errors import InvalidQuery, NotFound
+from pokedex_mcp.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
 from pokedex_mcp.domain.models import PokemonSummary
 from tests.builders import (
     make_evolution_chain,
@@ -10,7 +10,7 @@ from tests.builders import (
     make_species,
     make_type,
 )
-from tests.fakes import FakePokedexRepository
+from tests.fakes import FakePokedexRepository, RecordingPokedexProbe
 
 pytestmark = pytest.mark.anyio
 
@@ -153,3 +153,76 @@ async def test_get_evolution_chain_resolves_the_chain_through_the_species(servic
 async def test_get_evolution_chain_raises_not_found_when_species_has_no_chain(service):
     with pytest.raises(NotFound, match="Evolution chain 'tauros' not found"):
         await service.get_evolution_chain("tauros")
+
+
+@pytest.fixture
+def probe() -> RecordingPokedexProbe:
+    return RecordingPokedexProbe()
+
+
+@pytest.fixture
+def observed(repository: FakePokedexRepository, probe: RecordingPokedexProbe) -> PokedexService:
+    return PokedexService(repository, probe=probe)
+
+
+async def test_probe_follows_a_successful_lookup(observed, probe):
+    await observed.get_pokemon(" Pikachu ")
+
+    assert probe.events == [
+        "pokemon: started  Pikachu ",
+        "pokemon: normalized pikachu",
+        "pokemon: found",
+        "pokemon: ended",
+    ]
+
+
+async def test_probe_reports_not_found(observed, probe):
+    with pytest.raises(NotFound):
+        await observed.get_move("splash")
+
+    assert probe.events[-2:] == ["move: not found Move", "move: ended"]
+
+
+async def test_probe_reports_rejected_queries(observed, probe):
+    with pytest.raises(InvalidQuery):
+        await observed.list_pokemon(limit=0)
+
+    assert probe.events == [
+        "pokemon_list: started limit=0 offset=0",
+        "pokemon_list: rejected",
+        "pokemon_list: ended",
+    ]
+
+
+async def test_probe_reports_an_unavailable_source(observed, probe, repository):
+    repository.fail_next(PokedexUnavailable("HTTP 503"))
+
+    with pytest.raises(PokedexUnavailable):
+        await observed.get_type("electric")
+
+    assert probe.events[-2:] == ["type: unavailable", "type: ended"]
+
+
+async def test_probe_nests_the_species_lookup_inside_the_evolution_chain(observed, probe):
+    await observed.get_evolution_chain("pikachu")
+
+    assert probe.events == [
+        "evolution_chain: started pikachu",
+        "species: started pikachu",
+        "species: normalized pikachu",
+        "species: found",
+        "species: ended",
+        "evolution_chain: found",
+        "evolution_chain: ended",
+    ]
+
+
+async def test_probe_reports_a_species_without_chain_as_not_found(observed, probe):
+    with pytest.raises(NotFound):
+        await observed.get_evolution_chain("tauros")
+
+    assert "species: found" in probe.events
+    assert probe.events[-2:] == [
+        "evolution_chain: not found Evolution chain",
+        "evolution_chain: ended",
+    ]

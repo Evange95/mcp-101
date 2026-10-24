@@ -1,7 +1,5 @@
 """Output adapter: PokedexRepository backed by the public PokeAPI REST service."""
 
-import logging
-
 import httpx
 from pydantic import BaseModel, ValidationError
 
@@ -21,6 +19,7 @@ from pokedex_mcp.adapters.outbound.pokeapi.schemas import (
     SpeciesDTO,
     TypeDTO,
 )
+from pokedex_mcp.adapters.outbound.probes import NullPokeApiProbe, PokeApiProbe
 from pokedex_mcp.domain.errors import NotFound, PokedexUnavailable
 from pokedex_mcp.domain.models import (
     EvolutionChain,
@@ -31,14 +30,13 @@ from pokedex_mcp.domain.models import (
     PokemonType,
 )
 
-logger = logging.getLogger(__name__)
-
 
 class PokeApiRepository:
     """Reads Pokédex data from PokeAPI. `http` must have `base_url` set to the API root."""
 
-    def __init__(self, http: httpx.AsyncClient) -> None:
+    def __init__(self, http: httpx.AsyncClient, probe: PokeApiProbe | None = None) -> None:
         self._http = http
+        self._probe = probe or NullPokeApiProbe()
 
     async def get_pokemon(self, key: str) -> Pokemon:
         dto = await self._fetch(f"pokemon/{key}", PokemonDTO, resource="Pokémon", key=key)
@@ -104,5 +102,5 @@ class PokeApiRepository:
         try:
             return model.model_validate_json(response.content)
         except ValidationError as exc:
-            logger.warning("Unexpected PokeAPI payload for %s: %s", path, exc)
+            self._probe.unexpected_payload(resource, path, exc)
             raise PokedexUnavailable("unexpected response from PokeAPI", retryable=False) from exc

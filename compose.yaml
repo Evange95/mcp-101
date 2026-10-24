@@ -7,4 +7,16 @@ services:
     environment:
       POKEDEX_CACHE_TTL_SECONDS: "3600"
       POKEDEX_RETRY_ATTEMPTS: "3"
+      POKEDEX_TELEMETRY_ENABLED: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-lgtm:4318"
+    depends_on:
+      - otel-lgtm
+    restart: unless-stopped
+
+  # OpenTelemetry collector + Tempo (traces), Prometheus (metrics), Loki (logs) and Grafana.
+  otel-lgtm:
+    image: grafana/otel-lgtm:0.11.10
+    ports:
+      - "127.0.0.1:3000:3000"  # Grafana, admin/admin
+      - "127.0.0.1:4318:4318"  # OTLP/HTTP, for `uv run pokedex-mcp` outside compose
     restart: unless-stopped

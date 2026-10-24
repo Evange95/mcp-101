@@ -3,7 +3,12 @@ import pytest
 from pokedex_mcp.adapters.outbound.cache import CachedPokedexRepository
 from pokedex_mcp.domain.errors import PokedexUnavailable
 from tests.builders import make_pokemon
-from tests.fakes import REPOSITORY_OPERATIONS, FakePokedexRepository, full_repository
+from tests.fakes import (
+    REPOSITORY_OPERATIONS,
+    FakePokedexRepository,
+    RecordingAdapterProbe,
+    full_repository,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -20,9 +25,16 @@ class FakeClock:
 
 
 def cached(
-    inner: FakePokedexRepository, clock: FakeClock, *, ttl: float = 60, max_entries: int = 10
+    inner: FakePokedexRepository,
+    clock: FakeClock,
+    *,
+    ttl: float = 60,
+    max_entries: int = 10,
+    probe: RecordingAdapterProbe | None = None,
 ) -> CachedPokedexRepository:
-    return CachedPokedexRepository(inner, ttl_seconds=ttl, max_entries=max_entries, clock=clock)
+    return CachedPokedexRepository(
+        inner, ttl_seconds=ttl, max_entries=max_entries, clock=clock, probe=probe
+    )
 
 
 async def test_second_call_is_served_from_cache():
@@ -108,3 +120,23 @@ async def test_every_operation_is_cached(operation):
 def test_rejects_invalid_configuration(ttl, max_entries):
     with pytest.raises(ValueError, match="must be"):
         CachedPokedexRepository(full_repository(), ttl_seconds=ttl, max_entries=max_entries)
+
+
+async def test_probe_hears_misses_hits_expiries_and_evictions():
+    clock = FakeClock()
+    probe = RecordingAdapterProbe()
+    repository = cached(full_repository(), clock, ttl=60, max_entries=1, probe=probe)
+
+    await repository.get_pokemon("pikachu")
+    await repository.get_pokemon("pikachu")
+    clock.advance(60)
+    await repository.get_pokemon("pikachu")
+    await repository.get_type("electric")
+
+    assert probe.events == [
+        "miss pokemon",
+        "hit pokemon",
+        "expired pokemon",
+        "miss type",
+        "evicted pokemon",
+    ]

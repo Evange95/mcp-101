@@ -1,6 +1,6 @@
 """Runtime configuration, read from `POKEDEX_*` environment variables."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
     allowed_hosts: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    # Exports traces, metrics and logs over OTLP; tune with the standard OTEL_* variables.
+    telemetry_enabled: bool = False
 
     @field_validator("allowed_hosts", mode="before")
     @classmethod

@@ -1,17 +1,17 @@
 """Decorator adding retries with exponential backoff to any PokedexRepository."""
 
-import logging
 from collections.abc import Awaitable, Callable
 
 from tenacity import (
     AsyncRetrying,
-    before_sleep_log,
+    RetryCallState,
     retry_if_exception,
     stop_after_attempt,
     wait_exponential_jitter,
 )
 from tenacity.wait import wait_base
 
+from pokedex_mcp.adapters.outbound.probes import NullRetryProbe, RetryProbe
 from pokedex_mcp.application.ports import PokedexRepository
 from pokedex_mcp.domain.errors import PokedexUnavailable
 from pokedex_mcp.domain.models import (
@@ -22,8 +22,6 @@ from pokedex_mcp.domain.models import (
     PokemonSpecies,
     PokemonType,
 )
-
-logger = logging.getLogger(__name__)
 
 
 def _is_retryable(exc: BaseException) -> bool:
@@ -37,12 +35,14 @@ class RetryingPokedexRepository:
         *,
         attempts: int = 3,
         wait: wait_base | None = None,
+        probe: RetryProbe | None = None,
     ) -> None:
         if attempts < 1:
             raise ValueError("attempts must be >= 1")
         self._inner = inner
         self._attempts = attempts
         self._wait = wait if wait is not None else wait_exponential_jitter(initial=0.2, max=2.0)
+        self._probe = probe or NullRetryProbe()
 
     async def get_pokemon(self, key: str) -> Pokemon:
         return await self._retry(lambda: self._inner.get_pokemon(key))
@@ -67,10 +67,19 @@ class RetryingPokedexRepository:
             stop=stop_after_attempt(self._attempts),
             wait=self._wait,
             retry=retry_if_exception(_is_retryable),
-            before_sleep=before_sleep_log(logger, logging.WARNING),
+            before_sleep=self._report_retry,
             reraise=True,
         )
         async for attempt in retrying:
             with attempt:
                 return await call()
         raise AssertionError("unreachable: tenacity re-raises the last error")
+
+    def _report_retry(self, state: RetryCallState) -> None:
+        # Only retryable PokedexUnavailable errors reach before_sleep (see _is_retryable).
+        error = state.outcome.exception() if state.outcome else None
+        if isinstance(error, PokedexUnavailable):
+            wait_seconds = state.next_action.sleep if state.next_action else 0.0
+            self._probe.retry_scheduled(
+                attempt=state.attempt_number, error=error, wait_seconds=wait_seconds
+            )

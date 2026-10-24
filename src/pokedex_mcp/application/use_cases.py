@@ -2,9 +2,12 @@
 
 import re
 import unicodedata
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 from pokedex_mcp.application.ports import PokedexRepository
-from pokedex_mcp.domain.errors import InvalidQuery, NotFound
+from pokedex_mcp.application.probes import Lookup, LookupProbe, NullPokedexProbe, PokedexProbe
+from pokedex_mcp.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
 from pokedex_mcp.domain.models import (
     EvolutionChain,
     Move,
@@ -31,31 +34,61 @@ def normalize_key(raw: str | int) -> str:
     return key
 
 
+def _normalized(probe: LookupProbe, raw: str | int) -> str:
+    key = normalize_key(raw)
+    probe.query_normalized(key)
+    return key
+
+
 class PokedexService:
-    def __init__(self, repository: PokedexRepository) -> None:
+    def __init__(self, repository: PokedexRepository, probe: PokedexProbe | None = None) -> None:
         self._repository = repository
+        self._probe = probe or NullPokedexProbe()
 
     async def get_pokemon(self, name_or_id: str | int) -> Pokemon:
-        return await self._repository.get_pokemon(normalize_key(name_or_id))
+        with self._observed("pokemon", name_or_id) as probe:
+            return await self._repository.get_pokemon(_normalized(probe, name_or_id))
 
     async def get_species(self, name_or_id: str | int) -> PokemonSpecies:
-        return await self._repository.get_species(normalize_key(name_or_id))
+        with self._observed("species", name_or_id) as probe:
+            return await self._repository.get_species(_normalized(probe, name_or_id))
 
     async def list_pokemon(self, limit: int = 20, offset: int = 0) -> PokemonPage:
-        if not 1 <= limit <= MAX_PAGE_SIZE:
-            raise InvalidQuery(f"limit must be between 1 and {MAX_PAGE_SIZE}")
-        if offset < 0:
-            raise InvalidQuery("offset must be >= 0")
-        return await self._repository.list_pokemon(limit, offset)
+        with self._observed("pokemon_list", f"limit={limit} offset={offset}"):
+            if not 1 <= limit <= MAX_PAGE_SIZE:
+                raise InvalidQuery(f"limit must be between 1 and {MAX_PAGE_SIZE}")
+            if offset < 0:
+                raise InvalidQuery("offset must be >= 0")
+            return await self._repository.list_pokemon(limit, offset)
 
     async def get_type(self, name_or_id: str | int) -> PokemonType:
-        return await self._repository.get_type(normalize_key(name_or_id))
+        with self._observed("type", name_or_id) as probe:
+            return await self._repository.get_type(_normalized(probe, name_or_id))
 
     async def get_evolution_chain(self, pokemon: str | int) -> EvolutionChain:
-        species = await self.get_species(pokemon)
-        if species.evolution_chain_id is None:
-            raise NotFound("Evolution chain", species.name)
-        return await self._repository.get_evolution_chain(species.evolution_chain_id)
+        with self._observed("evolution_chain", pokemon):
+            species = await self.get_species(pokemon)
+            if species.evolution_chain_id is None:
+                raise NotFound("Evolution chain", species.name)
+            return await self._repository.get_evolution_chain(species.evolution_chain_id)
 
     async def get_move(self, name_or_id: str | int) -> Move:
-        return await self._repository.get_move(normalize_key(name_or_id))
+        with self._observed("move", name_or_id) as probe:
+            return await self._repository.get_move(_normalized(probe, name_or_id))
+
+    @contextmanager
+    def _observed(self, lookup: Lookup, query: str | int) -> Iterator[LookupProbe]:
+        """Bracket a lookup with its probe and report how it ended."""
+        with self._probe.lookup(lookup, str(query)) as probe:
+            try:
+                yield probe
+            except InvalidQuery as exc:
+                probe.query_rejected(exc)
+                raise
+            except NotFound as exc:
+                probe.not_found(exc)
+                raise
+            except PokedexUnavailable as exc:
+                probe.source_unavailable(exc)
+                raise
+            probe.found()

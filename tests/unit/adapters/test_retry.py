@@ -4,7 +4,12 @@ from tenacity import wait_none
 from pokedex_mcp.adapters.outbound.retry import RetryingPokedexRepository
 from pokedex_mcp.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
 from tests.builders import make_pokemon
-from tests.fakes import REPOSITORY_OPERATIONS, FakePokedexRepository, full_repository
+from tests.fakes import (
+    REPOSITORY_OPERATIONS,
+    FakePokedexRepository,
+    RecordingAdapterProbe,
+    full_repository,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -62,3 +67,26 @@ async def test_every_operation_is_retried(operation):
 def test_rejects_less_than_one_attempt():
     with pytest.raises(ValueError, match="attempts"):
         RetryingPokedexRepository(full_repository(), attempts=0)
+
+
+async def test_each_retry_is_reported_to_the_probe():
+    inner = full_repository()
+    inner.fail_next(PokedexUnavailable("HTTP 503"), PokedexUnavailable("timeout"))
+    probe = RecordingAdapterProbe()
+    repository = RetryingPokedexRepository(inner, attempts=3, wait=wait_none(), probe=probe)
+
+    await repository.get_pokemon("pikachu")
+
+    assert probe.events == ["retry after attempt 1: HTTP 503", "retry after attempt 2: timeout"]
+
+
+async def test_permanent_failures_are_not_reported_as_retries():
+    inner = full_repository()
+    inner.fail_next(NotFound("Pokémon", "pikachu"))
+    probe = RecordingAdapterProbe()
+    repository = RetryingPokedexRepository(inner, wait=wait_none(), probe=probe)
+
+    with pytest.raises(NotFound):
+        await repository.get_pokemon("pikachu")
+
+    assert probe.events == []
