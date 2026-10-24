@@ -19,7 +19,7 @@ CASES_YAML = """
   role: trainer
   question: "What type is Pikachu?"
   expect:
-    tools: [get_pokemon]
+    tools: [pokemon_get]
     keywords: [[electric, elettro], static]
 - id: trainer-mewtwo
   role: trainer
@@ -32,7 +32,7 @@ PIKACHU = EvalCase(
     id="pikachu-profile",
     role="trainer",
     question="What type is Pikachu?",
-    tools=("get_pokemon",),
+    tools=("pokemon_get",),
     keywords=(("electric", "elettro"), ("static",)),
 )
 MEWTWO = EvalCase(
@@ -44,8 +44,8 @@ def run(answer: str = "", calls: Sequence[ToolCall] = (), error: str | None = No
     return CaseRun(answer=answer, calls=list(calls), duration_s=1.5, cost_usd=0.01, error=error)
 
 
-ALLOWED_PIKACHU = ToolCall("get_pokemon", {"name_or_id": "pikachu"}, "allow")
-DENIED_MEWTWO = ToolCall("get_pokemon", {"name_or_id": "mewtwo"}, "deny")
+ALLOWED_PIKACHU = ToolCall("pokemon_get", {"name_or_id": "pikachu"}, "allow")
+DENIED_MEWTWO = ToolCall("pokemon_get", {"name_or_id": "mewtwo"}, "deny")
 
 
 def test_load_cases(tmp_path: Path) -> None:
@@ -79,13 +79,13 @@ def test_missing_keyword_is_reported() -> None:
 def test_missing_tool_call_is_reported() -> None:
     failures = check_case(PIKACHU, run("electric static"))
 
-    assert failures == ["expected tool not called: get_pokemon"]
+    assert failures == ["expected tool not called: pokemon_get"]
 
 
 def test_denied_tool_does_not_count_as_called() -> None:
     failures = check_case(PIKACHU, run("electric static", [DENIED_MEWTWO]))
 
-    assert failures == ["expected tool not called: get_pokemon"]
+    assert failures == ["expected tool not called: pokemon_get"]
 
 
 def test_expected_denial_passes_when_a_call_is_denied() -> None:
@@ -122,8 +122,8 @@ def test_report_lists_every_case_with_tools_and_times() -> None:
 
     assert "# Pokédex agent eval report" in report
     assert "**1/2 passed**" in report
-    assert "| pikachu-profile | trainer | ✅ pass | get_pokemon | 1.5 | 0.0100 |" in report
-    assert "| trainer-mewtwo | trainer | ❌ fail | get_pokemon | 1.5 | 0.0100 |" in report
+    assert "| pikachu-profile | trainer | ✅ pass | pokemon_get | 1.5 | 0.0100 |" in report
+    assert "| trainer-mewtwo | trainer | ❌ fail | pokemon_get | 1.5 | 0.0100 |" in report
     assert "- no denial" in report
 
 
@@ -132,7 +132,7 @@ def test_report_marks_denied_calls() -> None:
 
     report = render_report(results, model="m", generated_at="t")
 
-    assert "get_pokemon (denied)" in report
+    assert "pokemon_get (denied)" in report
 
 
 @pytest.mark.parametrize("keyword", ["STATIC", "static", "Static"])

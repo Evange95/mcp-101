@@ -60,9 +60,9 @@ def test_options_expose_only_the_pokedex_mcp_tools(guard: ToolGuard) -> None:
     assert options.tools == []  # every built-in tool disabled
     assert set(BUILTIN_TOOLS) <= set(options.disallowed_tools)
     assert {"Bash", "Read", "Write", "Edit", "WebSearch", "WebFetch"} <= set(BUILTIN_TOOLS)
-    assert options.allowed_tools == [f"mcp__pokedex__{tool}" for tool in POKEDEX_TOOLS]
+    assert options.allowed_tools == [f"mcp__monsterdex__{tool}" for tool in POKEDEX_TOOLS]
     assert options.permission_mode == "dontAsk"  # anything not pre-approved is denied
-    assert options.mcp_servers == {"pokedex": {"type": "http", "url": "http://mcp.test/mcp"}}
+    assert options.mcp_servers == {"monsterdex": {"type": "http", "url": "http://mcp.test/mcp"}}
     assert options.strict_mcp_config is True
     assert options.setting_sources == []  # ignore ~/.claude settings, hooks and plugins
     assert options.model == "claude-opus-5"

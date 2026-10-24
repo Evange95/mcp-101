@@ -51,7 +51,7 @@ def pre(tool_input: dict[str, Any], tool_use_id: str = "toolu_1") -> dict[str, A
         "session_id": "sess-1",
         "transcript_path": "/tmp/t.jsonl",
         "cwd": "/tmp",
-        "tool_name": "mcp__pokedex__get_pokemon",
+        "tool_name": "mcp__monsterdex__pokemon_get",
         "tool_input": tool_input,
         "tool_use_id": tool_use_id,
     }
@@ -85,7 +85,7 @@ async def test_denied_call_is_audited(guard: ToolGuard, audit_path: Path) -> Non
             "timestamp": "2026-09-26T10:00:00+00:00",
             "session_id": "sess-1",
             "role": "trainer",
-            "tool": "mcp__pokedex__get_pokemon",
+            "tool": "mcp__monsterdex__pokemon_get",
             "params": {"name_or_id": "mewtwo"},
             "decision": "deny",
             "rule": "no-mewtwo",
@@ -139,8 +139,8 @@ async def test_guard_records_every_call_for_the_eval(guard: ToolGuard) -> None:
     await guard.post_tool_use(post({"name_or_id": "pikachu"}, "toolu_2"), "toolu_2", None)
 
     assert [(c.tool, c.decision) for c in guard.calls] == [
-        ("get_pokemon", "deny"),
-        ("get_pokemon", "allow"),
+        ("pokemon_get", "deny"),
+        ("pokemon_get", "allow"),
     ]
 
 

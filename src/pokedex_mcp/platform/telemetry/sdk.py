@@ -82,7 +82,8 @@ class Telemetry:
         _logs.set_logger_provider(self.logger_provider)
         logging.getLogger().addHandler(self._log_handler)
 
-    def instrument(self, app: FastAPI, http: httpx.AsyncClient) -> None:
+    def instrument_app(self, app: FastAPI) -> None:
+        """Server spans and HTTP metrics for every route except the probes."""
         FastAPIInstrumentor.instrument_app(
             app,
             tracer_provider=self.tracer_provider,
@@ -90,8 +91,11 @@ class Telemetry:
             excluded_urls="health,livez,readyz",
             exclude_spans=["receive", "send"],
         )
+
+    def instrument_http(self, client: httpx.AsyncClient) -> None:
+        """Client spans (and trace propagation) for one outbound HTTP client."""
         HTTPXClientInstrumentor.instrument_client(
-            http, tracer_provider=self.tracer_provider, meter_provider=self.meter_provider
+            client, tracer_provider=self.tracer_provider, meter_provider=self.meter_provider
         )
 
     def shutdown(self) -> None:

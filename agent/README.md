@@ -7,11 +7,12 @@ control, auditing and measurable evaluation.
 
 ## How it works
 
-- **MCP over HTTP.** The agent connects to the running pokedex MCP server
+- **MCP over HTTP.** The agent connects to the running monsterdex MCP server
   (`http://127.0.0.1:8000/mcp` by default). The server code is not modified.
 - **Only MCP tools.** `tools=[]` plus an explicit `disallowed_tools` list remove every
   built-in tool (Bash, Read, Write, Edit, WebSearch, WebFetch, …). Only the six
-  `mcp__pokedex__*` tools are pre-approved, and `permission_mode="dontAsk"` denies
+  `mcp__monsterdex__pokemon_*` tools are pre-approved (listed one by one in `config.py`,
+  not by pattern), and `permission_mode="dontAsk"` denies
   anything else. `setting_sources=[]` keeps your `~/.claude` settings, hooks and plugins
   out of the agent.
 - **Roles and policy.** The role (`trainer` or `professor`) comes from
@@ -42,7 +43,7 @@ agent/
 Requirements: [uv](https://docs.astral.sh/uv/) and Python 3.14 (`mise install`).
 
 ```bash
-# 1. Start the pokedex MCP server (from the repository root)
+# 1. Start the monsterdex MCP server (from the repository root)
 uv run pokedex-mcp            # or: docker compose up -d
 
 # 2. Install the agent (from agent/)
@@ -57,7 +58,7 @@ uv sync
 | `ANTHROPIC_API_KEY` | yes, unless you are logged in to Claude Code | — | Claude API credentials. Never put it in code or in committed files. |
 | `POKEDEX_AGENT_ROLE` | for `chat` | — | `trainer` or `professor` |
 | `POKEDEX_AGENT_MODEL` | no | `claude-opus-5` | Claude model |
-| `POKEDEX_MCP_URL` | no | `http://127.0.0.1:8000/mcp` | pokedex MCP endpoint |
+| `POKEDEX_MCP_URL` | no | `http://127.0.0.1:8000/mcp` | monsterdex MCP endpoint |
 
 ```bash
 export ANTHROPIC_API_KEY=...   # e.g. from your password manager, not from a file in the repo
@@ -77,12 +78,12 @@ Type 'exit' to quit.
 
 you> Di che tipo è Pikachu?
 agent> Pikachu è di tipo Elettro.
-  [allow] get_pokemon {"name_or_id": "pikachu"}
+  [allow] pokemon_get {"name_or_id": "pikachu"}
 
 you> E Mewtwo?
 agent> La richiesta è stata negata: il ruolo trainer non può accedere ai dati
        dettagliati dei Pokémon leggendari o mitici.
-  [deny] get_pokemon {"name_or_id": "mewtwo"}
+  [deny] pokemon_get {"name_or_id": "mewtwo"}
 ```
 
 Switch to `POKEDEX_AGENT_ROLE=professor` and the same Mewtwo question is answered.
@@ -106,6 +107,10 @@ The run writes [`evals/report.md`](evals/report.md) (outcome, tools called, time
 cost per case) and exits with a non-zero code if any case fails, so it can gate CI.
 A session that does not finish within 180 seconds fails its case.
 
+The committed `evals/report.md` comes from a run made before the tools were renamed with
+the `pokemon_` prefix, so it still shows the old names (`get_pokemon`, ...). The next
+`pokedex-agent eval` run rewrites it.
+
 ### Audit log
 
 ```bash
@@ -117,7 +122,7 @@ tail -n 3 logs/audit.jsonl | jq .
   "timestamp": "2026-09-26T03:46:31.120+00:00",
   "session_id": "5b0c…",
   "role": "trainer",
-  "tool": "mcp__pokedex__get_pokemon",
+  "tool": "mcp__monsterdex__pokemon_get",
   "params": {"name_or_id": "mewtwo"},
   "decision": "deny",
   "rule": "trainer-no-legendary-details",

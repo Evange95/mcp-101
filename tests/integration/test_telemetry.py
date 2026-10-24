@@ -74,10 +74,10 @@ def attributes(item: Any) -> dict[str, Any]:
 def test_a_tool_call_is_traced_from_http_down_to_pokeapi(http):
     with respx.mock(base_url=BASE_URL) as pokeapi:
         pokeapi.get("/pokemon/pikachu").respond(json=load_json("pokemon_pikachu.json"))
-        call_tool(http, "get_pokemon", {"name_or_id": "Pikachu"})
+        call_tool(http, "pokemon_get", {"name_or_id": "Pikachu"})
 
     spans = {span.name: span for span in SPANS.get_finished_spans()}
-    server, tool = spans["POST"], spans["tools/call get_pokemon"]
+    server, tool = spans["POST"], spans["tools/call pokemon_get"]
     lookup, outgoing = spans["pokedex.lookup pokemon"], spans["GET"]
     assert len({context(span).trace_id for span in (server, tool, lookup, outgoing)}) == 1
     assert parent_id(tool) == context(server).span_id
@@ -92,7 +92,7 @@ def test_probe_logs_are_exported_and_correlated_with_the_trace(http, telemetry, 
     caplog.set_level(logging.INFO, logger="pokedex_mcp")
     with respx.mock(base_url=BASE_URL) as pokeapi:
         pokeapi.get("/type/shadow").respond(404)
-        call_tool(http, "get_type", {"name_or_id": "shadow"})
+        call_tool(http, "pokemon_get_type", {"name_or_id": "shadow"})
 
     lookup = next(s for s in SPANS.get_finished_spans() if s.name == "pokedex.lookup type")
     assert attributes(lookup)["pokedex.outcome"] == "not_found"

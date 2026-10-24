@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
-MCP_TOOL_PREFIX = "mcp__pokedex__"
+MCP_TOOL_PREFIX = "mcp__monsterdex__"
 # Tool arguments that carry a Pokémon name or id.
 POKEMON_ARGUMENTS = ("name_or_id", "pokemon")
 
@@ -74,7 +74,9 @@ class Policy:
         if role not in self.roles:
             raise ValueError(f"unknown role '{role}' (allowed: {', '.join(sorted(self.roles))})")
         if not tool_name.startswith(MCP_TOOL_PREFIX):
-            return Decision(False, "only-pokedex-tools", "Only the Pokédex MCP tools may be used.")
+            return Decision(
+                False, "only-monsterdex-tools", "Only the monsterdex MCP tools may be used."
+            )
         tool = tool_name.removeprefix(MCP_TOOL_PREFIX)
         for rule in self.rules:
             if rule.matches(role, tool, tool_input):

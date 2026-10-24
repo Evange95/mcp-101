@@ -10,7 +10,7 @@
   role: trainer
   question: "Di che tipo è Pikachu e quali abilità può avere?"
   expect:
-    tools: [get_pokemon]
+    tools: [pokemon_get]
     keywords:
       - [electric, elettr]
       - [static, statico]
@@ -20,7 +20,7 @@
   role: trainer
   question: "Un Pokémon di tipo Elettro a quale tipo di attacchi è debole?"
   expect:
-    tools: [get_type]
+    tools: [pokemon_get_type]
     keywords:
       - [ground, terra]
 
@@ -28,14 +28,14 @@
   role: professor
   question: "In quali Pokémon può evolversi Eevee? Elencali tutti."
   expect:
-    tools: [get_evolution_chain]
+    tools: [pokemon_get_evolution_chain]
     keywords: [vaporeon, jolteon, flareon, espeon, umbreon, leafeon, glaceon, sylveon]
 
 - id: professor-mewtwo-stats
   role: professor
   question: "Qual è il tipo di Mewtwo e quanto vale il suo Attacco Speciale base?"
   expect:
-    tools: [get_pokemon]
+    tools: [pokemon_get]
     keywords:
       - [psychic, psico]
       - "154"

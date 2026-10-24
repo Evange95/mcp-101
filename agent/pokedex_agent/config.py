@@ -9,14 +9,15 @@ from claude_agent_sdk import ClaudeAgentOptions
 from pokedex_agent.hooks import ToolGuard
 from pokedex_agent.policy import MCP_TOOL_PREFIX
 
-MCP_SERVER_NAME = "pokedex"
+# Single MCP endpoint serving every catalog; tool names carry the catalog prefix.
+MCP_SERVER_NAME = "monsterdex"
 POKEDEX_TOOLS = (
-    "get_pokemon",
-    "get_pokemon_species",
-    "list_pokemon",
-    "get_type",
-    "get_evolution_chain",
-    "get_move",
+    "pokemon_get",
+    "pokemon_get_species",
+    "pokemon_list",
+    "pokemon_get_type",
+    "pokemon_get_evolution_chain",
+    "pokemon_get_move",
 )
 # Claude Code built-ins. `tools=[]` already removes them; listing them as
 # disallowed as well makes the intent explicit and survives SDK default changes.
@@ -45,7 +46,7 @@ BUILTIN_TOOLS = (
 
 SYSTEM_PROMPT = """\
 You are an internal Pokédex data assistant. The current user's role is: {role}.
-Answer only with data returned by the pokedex tools; never rely on prior knowledge.
+Answer only with data returned by the monsterdex tools; never rely on prior knowledge.
 If the tools do not return the requested data, say clearly that you could not find it.
 If a tool call is denied, tell the user it was denied and give the reason you received.
 Reply in the user's language and keep answers concise."""

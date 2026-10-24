@@ -20,7 +20,7 @@ class PolicyEvaluator(Protocol):
 class ToolCall:
     """A tool call as seen by the guard; used by the eval runner."""
 
-    tool: str  # short name, e.g. "get_pokemon"
+    tool: str  # short name, e.g. "pokemon_get"
     params: dict[str, Any]
     decision: str  # "allow" | "deny"
 

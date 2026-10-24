@@ -56,7 +56,11 @@ Inside each catalog (paths below are relative to `catalogs/pokedex/`), hexagonal
   `retry_if` / `reason` functions.
   When you add a method to `PokedexRepository`, add it to every implementation, the fake in
   `tests/fakes.py` and `REPOSITORY_OPERATIONS`.
-- `platform/` holds the process lifecycle (`lifecycle.py`: starting → ready → draining → stopping),
+- `platform/catalog.py`: the `CatalogModule` contract (name, instructions, register_tools,
+  readiness_checks, running) and `build_mcp_server`, which builds **one** MCP server
+  (`monsterdex`) at `/mcp` for every module. `main.build_modules` lists the modules.
+  Every catalog has a `module.py` implementing it.
+- `platform/` also holds the process lifecycle (`lifecycle.py`: starting → ready → draining → stopping),
   `/livez` + `/readyz` + `/health` (alias of `/livez`) in `health.py`, `GracefulServer` in
   `server.py` (uvicorn subclass that drains on SIGTERM), and `telemetry/` (`sdk.py`: OTel
   providers, exporters, instrumentation; `log.py`: `configure_logging`, lifecycle probe). Liveness must never depend on PokeAPI or on
@@ -68,6 +72,21 @@ Inside each catalog (paths below are relative to `catalogs/pokedex/`), hexagonal
 - `main.py` is the only composition root: all wiring (adapters, probes, telemetry) is there.
 - Configuration lives in `config.py` (`POKEDEX_*` env vars); OpenTelemetry exporters use
   the standard `OTEL_*` vars instead of new settings.
+
+## MCP tools rules
+
+- Tools live in `catalogs/<name>/adapters/inbound/mcp/tools.py`, one method per tool on a
+  `<Name>Tools` class, listed explicitly in `all()`. No tools defined as closures inside a
+  builder function: the file is meant to be read as the catalog's tool catalogue.
+- Every tool name starts with the catalog prefix (`pokemon_`, `digimon_`): one endpoint
+  serves every catalog, and the prefix is how the model (and agent policies) tell them
+  apart. `register_tools` asserts it.
+- Every tool needs a docstring (it is the description the model sees), typed parameters
+  with `Field(description=...)`, a structured output model, and the read-only
+  annotations. Domain errors become `ToolError`, never protocol errors.
+- Adding, renaming or removing a tool: update the README `## Tools` table
+  (`tests/integration/test_tools_documented.py` enforces it), the agent allowlist
+  (`agent/pokedex_agent/config.py`), its policy rules and eval cases.
 
 ## Observability rules (domain probes)
 

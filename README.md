@@ -5,14 +5,29 @@ data to LLM clients, hosted in a FastAPI app (Streamable HTTP at `/mcp`).
 
 ## Tools
 
+One MCP endpoint (`/mcp`, server name `monsterdex`) serves every catalog. Each tool name
+starts with its catalog's prefix, so a model can tell which catalog a tool belongs to (a
+Pokémon type and a Digimon type are different things), and an agent can allow a whole
+catalog with one pattern (`mcp__monsterdex__pokemon_*`). The server's MCP `instructions`
+list the catalogs and their prefixes.
+
+**Pokémon** (`pokemon_`, data from PokeAPI) — `catalogs/pokedex/adapters/inbound/mcp/tools.py`
+
 | Tool | Description |
 |---|---|
-| `get_pokemon(name_or_id)` | Types, abilities, base stats, height/weight, sprite |
-| `get_pokemon_species(name_or_id)` | Pokédex description, generation, legendary/mythical |
-| `list_pokemon(limit=20, offset=0)` | Paginated list in National Pokédex order |
-| `get_type(name_or_id)` | Damage relations (weaknesses, resistances, immunities) |
-| `get_evolution_chain(pokemon)` | Full evolution tree for any Pokémon in the chain |
-| `get_move(name_or_id)` | Type, damage class, power, accuracy, PP, effect |
+| `pokemon_get(name_or_id)` | Types, abilities, base stats, height/weight, sprite |
+| `pokemon_get_species(name_or_id)` | Pokédex description, generation, legendary/mythical |
+| `pokemon_list(limit=20, offset=0)` | Paginated list in National Pokédex order |
+| `pokemon_get_type(name_or_id)` | Damage relations (weaknesses, resistances, immunities) |
+| `pokemon_get_evolution_chain(pokemon)` | Full evolution tree for any Pokémon in the chain |
+| `pokemon_get_move(name_or_id)` | Type, damage class, power, accuracy, PP, effect |
+
+`tests/integration/test_tools_documented.py` fails if this table and the tools the server
+exposes differ. Add a row here whenever you add a tool.
+
+Every tool is read-only (`readOnlyHint`, `idempotentHint`, `openWorldHint`). Domain errors
+(not found, invalid query, source unavailable) come back as MCP tool errors (`isError:
+true`) with a readable message, never as protocol errors.
 
 ## Architecture
 
@@ -57,7 +72,10 @@ src/pokedex_mcp/
         probes.py             PokedexProbe / LookupProbe: what the core announces (observability port)
         use_cases.py          PokedexService: key normalization, validation, orchestration
       adapters/
-        inbound/mcp/          MCP tools (server.py) and their output schemas (schemas.py)
+        inbound/mcp/          tools.py (PokedexTools: one method per `pokemon_*` tool,
+                              register_tools) and output schemas (schemas.py)
+      module.py             PokedexModule: the catalog's CatalogModule (builds its adapters,
+                              owns its HTTP client, registers its tools)
         outbound/
           pokeapi/            PokeApiRepository: httpx client, DTOs, DTO → domain mappers
           retry.py            RetryingPokedexRepository: one line per method over RetryPolicy;
@@ -70,6 +88,8 @@ src/pokedex_mcp/
     lifecycle.py              Lifecycle phases (starting → ready → draining → stopping)
     health.py                 /livez, /readyz, /health
     server.py                 GracefulServer: drain on SIGTERM + graceful shutdown
+    catalog.py                CatalogModule contract, Platform (instrumented HTTP clients),
+                              build_mcp_server: one MCP server for every module
     telemetry/sdk.py          Telemetry: OTel providers, OTLP exporters, instrumentation
     telemetry/log.py          configure_logging(), LoggingLifecycleProbe
     resilience/cache.py       TtlLruCache + CacheProbe: TTL + LRU cache for any async loader
@@ -89,6 +109,38 @@ of its domain are transient. A new catalog (e.g. Digimon) writes two tiny decora
 own port and gets the same behavior, probes and metrics, with no copy of the logic. The
 decorators keep the port's exact method signatures, so they stay type-checked against it
 (`TYPE_CHECKING` assertion). A generic wrapper based on `__getattr__` would lose that.
+
+### Catalog modules
+
+`main.py` serves a list of catalog modules (`build_modules`). Each one implements
+`CatalogModule` (`platform/catalog.py`):
+
+| Member | What the module provides |
+|---|---|
+| `name` | short id (`pokedex`), used to namespace readiness checks |
+| `instructions` | one paragraph for the MCP `instructions`: what it holds and its tool prefix |
+| `register_tools(mcp)` | adds its tools to the shared MCP server |
+| `readiness_checks()` | local checks for `/readyz` (e.g. its HTTP client is open) |
+| `running()` | async context manager holding its resources (HTTP clients) for the app's lifetime |
+
+The platform passes each module a `Platform`, which hands out HTTP clients that are
+already traced and metered (`platform.http_client(...)`). `create_app` then builds one
+`MCPServer` named `monsterdex` with every module's tools and instructions. The lifespan
+opens every module's resources, then the MCP session manager, and only after that marks
+the pod ready. On shutdown it closes them in reverse order.
+
+**Adding a catalog** (e.g. Digimon):
+
+1. Create `catalogs/<name>/` with its own `domain/`, `application/` (service, ports, probes)
+   and `adapters/`. Never import another catalog; share only through `platform/`.
+2. Write `adapters/inbound/mcp/tools.py`. Every tool is a method named `<prefix>_<verb>`
+   (e.g. `digimon_get`) with a docstring, a `PREFIX` and an `INSTRUCTIONS` paragraph.
+3. Write `module.py` implementing `CatalogModule` (with its `TYPE_CHECKING` assertion), and
+   add it to `build_modules` in `main.py`.
+4. Add a `## Tools` table for the catalog in this README.
+   `test_tools_documented.py` fails until you do.
+5. Allow its tools in the agent (`agent/pokedex_agent/config.py`) and, if needed, add
+   policy rules and eval cases.
 
 ## Observability
 
@@ -161,12 +213,12 @@ One `tools/call` produces a single trace:
 
 ```
 POST                                     FastAPI server span (named "POST": /mcp is a mount)
-└─ tools/call get_pokemon                MCP SDK, built in (gen_ai.tool.name, jsonrpc.request.id)
+└─ tools/call pokemon_get                MCP SDK, built in (gen_ai.tool.name, jsonrpc.request.id)
    └─ pokedex.lookup pokemon             OtelPokedexProbe
       └─ GET                             httpx client span → PokeAPI (absent on a cache hit)
 ```
 
-`get_evolution_chain` nests a `pokedex.lookup species` span inside
+`pokemon_get_evolution_chain` nests a `pokedex.lookup species` span inside
 `pokedex.lookup evolution_chain`, because it resolves the chain id through the species.
 
 Lookup span attributes and events:
@@ -296,10 +348,11 @@ starting ──▶ ready ──▶ draining ──▶ stopping
   outage, Kubernetes would restart healthy pods in a loop. If it followed the draining
   phase, Kubernetes would kill a pod during its graceful shutdown.
 - **`GET /readyz`**: "send me new traffic". 200 only in the `ready` phase *and* when the
-  local readiness checks pass (today: the PokeAPI HTTP client is open). The body says why:
+  local readiness checks of every catalog module pass, namespaced by module (today:
+  `pokedex.pokeapi_client`, the PokeAPI HTTP client is open). The body says why:
 
   ```json
-  {"status": "not_ready", "phase": "draining", "checks": {"pokeapi_client": "ok"}}
+  {"status": "not_ready", "phase": "draining", "checks": {"pokedex.pokeapi_client": "ok"}}
   ```
 
   **PokeAPI reachability is deliberately not a readiness check.** It is a dependency shared
@@ -382,7 +435,7 @@ docker compose up --build               # http://localhost:8000/mcp
 Connect Claude Code:
 
 ```bash
-claude mcp add --transport http pokedex http://127.0.0.1:8000/mcp
+claude mcp add --transport http monsterdex http://127.0.0.1:8000/mcp
 ```
 
 ## Configuration (`POKEDEX_*` env vars)
@@ -451,7 +504,7 @@ npx @modelcontextprotocol/inspector
 # Transport: Streamable HTTP, URL: http://127.0.0.1:8000/mcp
 ```
 
-**Claude Code**: `claude mcp add --transport http pokedex http://127.0.0.1:8000/mcp`,
+**Claude Code**: `claude mcp add --transport http monsterdex http://127.0.0.1:8000/mcp`,
 then ask e.g. "what are Pikachu's weaknesses?".
 
 **curl**: an MCP session takes three requests (initialize, the `initialized`
@@ -470,7 +523,7 @@ curl -s -X POST $URL -H "$ACCEPT" -H "$JSON" -H "mcp-session-id: $SID" \
   -d '{"jsonrpc":"2.0","method":"notifications/initialized"}'          # → HTTP 202
 
 curl -s -X POST $URL -H "$ACCEPT" -H "$JSON" -H "mcp-session-id: $SID" \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_type","arguments":{"name_or_id":"Electric"}}}'
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"pokemon_get_type","arguments":{"name_or_id":"Electric"}}}'
 ```
 
 The response is a Server-Sent Event: the JSON-RPC result is on the `data:` line. Use
@@ -493,6 +546,7 @@ uv run pytest -m live                           # contract test against the real
 | `tests/unit/adapters` | cache and retry decorators; log and OTel probe adapters | none (fake clock, in-memory exporters) |
 | `tests/integration/pokeapi` | PokeAPI client and DTO mapping | HTTP mocked with `respx` |
 | `tests/integration/test_app.py`, `test_mcp_server.py` | full FastAPI + MCP app, tools end to end | HTTP mocked with `respx` |
+| `tests/integration/test_tools_documented.py` | the README tool table lists exactly the exposed tools | in-process MCP client |
 | `tests/integration/test_telemetry.py` | one tool call → one trace (HTTP → MCP → lookup → PokeAPI), logs correlated | in-memory exporters |
 | `tests/unit/platform` | lifecycle phases; drain logic of `GracefulServer`; `TtlLruCache` and `RetryPolicy` with plain values (no Pokédex types) | none (fake clock) |
 | `tests/unit/test_architecture.py` | layering: `platform/` imports no catalog, catalogs don't import each other, in each catalog `application/` imports no adapters or platform and `domain/` only the standard library | none (reads the source) |

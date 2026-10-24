@@ -1,21 +1,20 @@
-"""Composition root: wires adapters to the core and hosts the MCP server in FastAPI."""
+"""Composition root: builds the catalog modules and hosts their MCP tools in FastAPI."""
 
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
-import httpx
 import uvicorn
 from fastapi import FastAPI
 from mcp.server.transport_security import TransportSecuritySettings
 
-from pokedex_mcp.catalogs.pokedex.adapters.inbound.mcp.server import build_mcp_server
-from pokedex_mcp.catalogs.pokedex.adapters.outbound.cache import CachedPokedexRepository
-from pokedex_mcp.catalogs.pokedex.adapters.outbound.pokeapi.client import PokeApiRepository
-from pokedex_mcp.catalogs.pokedex.adapters.outbound.retry import RetryingPokedexRepository
-from pokedex_mcp.catalogs.pokedex.adapters.outbound.telemetry.probes import Probes, build_probes
-from pokedex_mcp.catalogs.pokedex.application.ports import PokedexRepository
-from pokedex_mcp.catalogs.pokedex.application.use_cases import PokedexService
+from pokedex_mcp.catalogs.pokedex.module import PokedexModule
 from pokedex_mcp.config import Settings
+from pokedex_mcp.platform.catalog import (
+    CatalogModule,
+    Platform,
+    build_mcp_server,
+    readiness_checks,
+)
 from pokedex_mcp.platform.health import build_health_router
 from pokedex_mcp.platform.lifecycle import Lifecycle
 from pokedex_mcp.platform.server import GracefulServer
@@ -24,23 +23,11 @@ from pokedex_mcp.platform.telemetry.sdk import Telemetry
 
 LOCAL_HOSTS = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
 LOCAL_ORIGINS = ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
-USER_AGENT = "pokedex-mcp/0.1"
 
 
-def build_repository(
-    http: httpx.AsyncClient, settings: Settings, probes: Probes
-) -> PokedexRepository:
-    """Cache outermost so cache hits never pay for retries: Cached(Retrying(PokeApi))."""
-    return CachedPokedexRepository(
-        RetryingPokedexRepository(
-            PokeApiRepository(http, probe=probes.pokeapi),
-            attempts=settings.retry_attempts,
-            probe=probes.retry,
-        ),
-        ttl_seconds=settings.cache_ttl_seconds,
-        max_entries=settings.cache_max_entries,
-        probe=probes.cache,
-    )
+def build_modules(settings: Settings, platform: Platform) -> list[CatalogModule]:
+    """The catalogs this deployment serves. Add a catalog here (behind a setting if optional)."""
+    return [PokedexModule(settings, platform)]
 
 
 def create_app(
@@ -52,15 +39,9 @@ def create_app(
     is shared with the server that drives the graceful shutdown (see `run`)."""
     settings = settings or Settings()
     lifecycle = lifecycle or Lifecycle(LoggingLifecycleProbe())
-    probes = build_probes(telemetry)
-    http = httpx.AsyncClient(
-        base_url=settings.pokeapi_base_url,
-        timeout=settings.http_timeout_seconds,
-        headers={"User-Agent": USER_AGENT},
-    )
+    modules = build_modules(settings, Platform(telemetry))
     # A fresh MCPServer per app: its session manager can only be run once.
-    service = PokedexService(build_repository(http, settings, probes), probe=probes.pokedex)
-    mcp = build_mcp_server(service)
+    mcp = build_mcp_server(modules)
     mcp_app = mcp.streamable_http_app(
         transport_security=TransportSecuritySettings(
             allowed_hosts=[*LOCAL_HOSTS, *settings.allowed_hosts],
@@ -70,20 +51,21 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
-        async with http, mcp.session_manager.run():
+        async with AsyncExitStack() as resources:
+            for module in modules:
+                await resources.enter_async_context(module.running())
+            await resources.enter_async_context(mcp.session_manager.run())
             lifecycle.ready()
             try:
                 yield
             finally:
                 lifecycle.stop(reason="lifespan shutdown")
 
-    app = FastAPI(title="Pokédex MCP", version="0.1.0", lifespan=lifespan)
-    app.include_router(
-        build_health_router(lifecycle, checks={"pokeapi_client": lambda: not http.is_closed})
-    )
+    app = FastAPI(title="Monsterdex MCP", version="0.1.0", lifespan=lifespan)
+    app.include_router(build_health_router(lifecycle, checks=readiness_checks(modules)))
     app.mount("/", mcp_app)  # serves POST /mcp; must stay the last route
     if telemetry is not None:
-        telemetry.instrument(app, http)
+        telemetry.instrument_app(app)
     return app
 
 

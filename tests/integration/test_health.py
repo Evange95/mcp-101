@@ -31,7 +31,11 @@ def test_a_started_replica_is_alive_and_ready(running):
     assert running.get("/livez").json() == {"status": "alive", "phase": "ready"}
     ready = running.get("/readyz")
     assert ready.status_code == 200
-    assert ready.json() == {"status": "ready", "phase": "ready", "checks": {"pokeapi_client": "ok"}}
+    assert ready.json() == {
+        "status": "ready",
+        "phase": "ready",
+        "checks": {"pokedex.pokeapi_client": "ok"},
+    }
 
 
 def test_a_replica_whose_startup_has_not_run_is_alive_but_not_ready(app):

@@ -12,7 +12,7 @@ legendary: &legendary
 rules:
   - id: trainer-no-legendary-details
     roles: [trainer]
-    tools: [get_pokemon, get_pokemon_species, get_evolution_chain]
+    tools: [pokemon_get, pokemon_get_species, pokemon_get_evolution_chain]
     pokemon: *legendary
     reason: "Trainers cannot access detailed data on legendary Pokémon."
 """
@@ -35,7 +35,7 @@ def test_normalize_name_matches_pokeapi_slugs(raw: str | int, expected: str) -> 
 
 @pytest.mark.parametrize("pokemon", ["Mewtwo", "mewtwo", 150, "150", " LUGIA "])
 def test_trainer_is_denied_legendary_details(policy: Policy, pokemon: str | int) -> None:
-    decision = policy.evaluate("trainer", "mcp__pokedex__get_pokemon", {"name_or_id": pokemon})
+    decision = policy.evaluate("trainer", "mcp__monsterdex__pokemon_get", {"name_or_id": pokemon})
 
     assert decision.allowed is False
     assert decision.rule_id == "trainer-no-legendary-details"
@@ -43,26 +43,32 @@ def test_trainer_is_denied_legendary_details(policy: Policy, pokemon: str | int)
 
 
 def test_rule_also_covers_the_evolution_chain_argument(policy: Policy) -> None:
-    decision = policy.evaluate("trainer", "mcp__pokedex__get_evolution_chain", {"pokemon": "lugia"})
+    decision = policy.evaluate(
+        "trainer", "mcp__monsterdex__pokemon_get_evolution_chain", {"pokemon": "lugia"}
+    )
 
     assert decision.allowed is False
 
 
 def test_trainer_may_look_up_regular_pokemon(policy: Policy) -> None:
-    decision = policy.evaluate("trainer", "mcp__pokedex__get_pokemon", {"name_or_id": "pikachu"})
+    decision = policy.evaluate("trainer", "mcp__monsterdex__pokemon_get", {"name_or_id": "pikachu"})
 
     assert decision.allowed is True
     assert decision.rule_id is None
 
 
 def test_professor_may_look_up_legendary_pokemon(policy: Policy) -> None:
-    decision = policy.evaluate("professor", "mcp__pokedex__get_pokemon", {"name_or_id": "mewtwo"})
+    decision = policy.evaluate(
+        "professor", "mcp__monsterdex__pokemon_get", {"name_or_id": "mewtwo"}
+    )
 
     assert decision.allowed is True
 
 
 def test_tools_outside_the_rule_are_allowed(policy: Policy) -> None:
-    decision = policy.evaluate("trainer", "mcp__pokedex__get_type", {"name_or_id": "psychic"})
+    decision = policy.evaluate(
+        "trainer", "mcp__monsterdex__pokemon_get_type", {"name_or_id": "psychic"}
+    )
 
     assert decision.allowed is True
 
@@ -71,16 +77,18 @@ def test_tools_outside_the_pokedex_server_are_denied(policy: Policy) -> None:
     decision = policy.evaluate("professor", "Bash", {"command": "ls"})
 
     assert decision.allowed is False
-    assert decision.rule_id == "only-pokedex-tools"
+    assert decision.rule_id == "only-monsterdex-tools"
 
 
 def test_unknown_roles_are_rejected(policy: Policy) -> None:
     with pytest.raises(ValueError, match="unknown role 'admin'"):
-        policy.evaluate("admin", "mcp__pokedex__get_pokemon", {"name_or_id": "pikachu"})
+        policy.evaluate("admin", "mcp__monsterdex__pokemon_get", {"name_or_id": "pikachu"})
 
 
 def test_repository_policy_file_loads() -> None:
     policy = Policy.from_yaml(Path(__file__).parent.parent / "policy.yaml")
 
     assert policy.roles == frozenset({"trainer", "professor"})
-    assert not policy.evaluate("trainer", "mcp__pokedex__get_pokemon", {"name_or_id": 150}).allowed
+    assert not policy.evaluate(
+        "trainer", "mcp__monsterdex__pokemon_get", {"name_or_id": 150}
+    ).allowed

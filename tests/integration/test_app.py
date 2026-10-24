@@ -62,10 +62,12 @@ def test_health_is_an_alias_of_livez(http):
     assert response.json() == {"status": "alive", "phase": "ready"}
 
 
-def test_mcp_endpoint_identifies_the_pokedex_server(http):
+def test_mcp_endpoint_identifies_the_monsterdex_server(http):
     response = http.post("/mcp", json=INITIALIZE, headers=MCP_HEADERS)
 
-    assert sse_messages(response)[0]["result"]["serverInfo"]["name"] == "pokedex"
+    result = sse_messages(response)[0]["result"]
+    assert result["serverInfo"]["name"] == "monsterdex"
+    assert "- Pokémon (data from PokeAPI): tools start with `pokemon_`" in result["instructions"]
 
 
 def test_get_pokemon_end_to_end_through_pokeapi(http):
@@ -76,7 +78,7 @@ def test_get_pokemon_end_to_end_through_pokeapi(http):
             "jsonrpc": "2.0",
             "id": 2,
             "method": "tools/call",
-            "params": {"name": "get_pokemon", "arguments": {"name_or_id": "Pikachu"}},
+            "params": {"name": "pokemon_get", "arguments": {"name_or_id": "Pikachu"}},
         }
         response = http.post("/mcp", json=call, headers=headers)
 

@@ -46,7 +46,7 @@ legendary: &legendary
 rules:
   - id: trainer-no-legendary-details
     roles: [trainer]
-    tools: [get_pokemon, get_pokemon_species, get_evolution_chain]
+    tools: [pokemon_get, pokemon_get_species, pokemon_get_evolution_chain]
     pokemon: *legendary
     reason: >-
       The trainer role cannot access detailed data on legendary or mythical Pokémon.
