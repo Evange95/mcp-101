@@ -1,0 +1,90 @@
+# Pokédex MCP on Kubernetes. Apply with: kubectl apply -f deploy/k8s/
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pokedex-mcp
+  labels:
+    app.kubernetes.io/name: pokedex-mcp
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pokedex-mcp
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0  # a new pod must be ready before an old one starts draining
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pokedex-mcp
+    spec:
+      # Must exceed POKEDEX_SHUTDOWN_DRAIN_SECONDS + POKEDEX_SHUTDOWN_TIMEOUT_SECONDS + flush.
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: pokedex-mcp
+          image: pokedex-mcp:latest
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: POKEDEX_ALLOWED_HOSTS  # Host headers accepted by /mcp (the Service name)
+              value: "pokedex-mcp:*,pokedex-mcp.default.svc.cluster.local:*"
+            - name: POKEDEX_SHUTDOWN_DRAIN_SECONDS
+              value: "5"
+            - name: POKEDEX_SHUTDOWN_TIMEOUT_SECONDS
+              value: "20"
+            - name: POKEDEX_TELEMETRY_ENABLED
+              value: "false"
+            # - name: OTEL_EXPORTER_OTLP_ENDPOINT
+            #   value: "http://otel-collector.observability:4318"
+          # Startup: allow up to 30 s to boot before liveness starts counting.
+          startupProbe:
+            httpGet: {path: /livez, port: http}
+            periodSeconds: 2
+            failureThreshold: 15
+          # Liveness: restart only if the process stops answering. Never depends on PokeAPI.
+          livenessProbe:
+            httpGet: {path: /livez, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          # Readiness: in rotation only when started and not draining.
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 1
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp  # the root filesystem is read-only; Python and httpx may need a temp dir
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pokedex-mcp
+  labels:
+    app.kubernetes.io/name: pokedex-mcp
+spec:
+  selector:
+    app.kubernetes.io/name: pokedex-mcp
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

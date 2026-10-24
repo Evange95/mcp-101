@@ -1,8 +1,9 @@
 """Probe adapters turning domain announcements into OpenTelemetry spans and metrics."""
 
 import time
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
+from typing import TYPE_CHECKING
 
 from opentelemetry import trace
 from opentelemetry.metrics import MeterProvider
@@ -63,7 +64,7 @@ class OtelPokedexProbe:
         )
 
     @contextmanager
-    def lookup(self, lookup: Lookup, query: str) -> Iterator[LookupProbe]:
+    def lookup(self, lookup: Lookup, query: str) -> Generator[LookupProbe]:
         started = time.perf_counter()
         with self._tracer.start_as_current_span(
             f"pokedex.lookup {lookup}",
@@ -150,3 +151,14 @@ class OtelPokeApiProbe:
         trace.get_current_span().add_event(
             "pokedex.pokeapi.unexpected_payload", {"url.path": path, "pokedex.resource": resource}
         )
+
+
+if TYPE_CHECKING:
+    from pokedex_mcp.adapters.outbound.probes import CacheProbe, PokeApiProbe, RetryProbe
+    from pokedex_mcp.application.probes import PokedexProbe
+
+    _lookup_probe: type[LookupProbe] = _OtelLookupProbe
+    _pokedex: type[PokedexProbe] = OtelPokedexProbe
+    _cache: type[CacheProbe] = OtelCacheProbe
+    _retry: type[RetryProbe] = OtelRetryProbe
+    _pokeapi: type[PokeApiProbe] = OtelPokeApiProbe

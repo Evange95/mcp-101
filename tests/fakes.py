@@ -1,8 +1,8 @@
 """In-memory test doubles for the PokedexRepository port and the probes."""
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Generator, Iterable
 from contextlib import contextmanager
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import pytest
 
@@ -125,7 +125,7 @@ class RecordingPokedexProbe:
         self.events: list[str] = []
 
     @contextmanager
-    def lookup(self, lookup: Lookup, query: str) -> Iterator[LookupProbe]:
+    def lookup(self, lookup: Lookup, query: str) -> Generator[LookupProbe]:
         self.events.append(f"{lookup}: started {query}")
         try:
             yield _RecordingLookupProbe(self.events, lookup)
@@ -176,3 +176,16 @@ REPOSITORY_OPERATIONS: list[object] = [
     pytest.param(lambda r: r.get_evolution_chain(10), id="get_evolution_chain"),
     pytest.param(lambda r: r.get_move("thunderbolt"), id="get_move"),
 ]
+
+
+if TYPE_CHECKING:
+    from pokedex_mcp.adapters.outbound.probes import CacheProbe, PokeApiProbe, RetryProbe
+    from pokedex_mcp.application.ports import PokedexRepository
+    from pokedex_mcp.application.probes import PokedexProbe
+
+    _repository: type[PokedexRepository] = FakePokedexRepository
+    _lookup_probe: type[LookupProbe] = _RecordingLookupProbe
+    _pokedex: type[PokedexProbe] = RecordingPokedexProbe
+    _cache: type[CacheProbe] = RecordingAdapterProbe
+    _retry: type[RetryProbe] = RecordingAdapterProbe
+    _pokeapi: type[PokeApiProbe] = RecordingAdapterProbe

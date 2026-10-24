@@ -1,6 +1,7 @@
 """Decorator adding retries with exponential backoff to any PokedexRepository."""
 
 from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
 from tenacity import (
     AsyncRetrying,
@@ -41,7 +42,7 @@ class RetryingPokedexRepository:
             raise ValueError("attempts must be >= 1")
         self._inner = inner
         self._attempts = attempts
-        self._wait = wait if wait is not None else wait_exponential_jitter(initial=0.2, max=2.0)
+        self._wait = wait if wait is not None else wait_exponential_jitter(multiplier=0.2, max=2.0)
         self._probe = probe or NullRetryProbe()
 
     async def get_pokemon(self, key: str) -> Pokemon:
@@ -83,3 +84,7 @@ class RetryingPokedexRepository:
             self._probe.retry_scheduled(
                 attempt=state.attempt_number, error=error, wait_seconds=wait_seconds
             )
+
+
+if TYPE_CHECKING:
+    _: type[PokedexRepository] = RetryingPokedexRepository

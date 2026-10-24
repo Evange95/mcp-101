@@ -1,5 +1,7 @@
 """Output adapter: PokedexRepository backed by the public PokeAPI REST service."""
 
+from typing import TYPE_CHECKING
+
 import httpx
 from pydantic import BaseModel, ValidationError
 
@@ -104,3 +106,9 @@ class PokeApiRepository:
         except ValidationError as exc:
             self._probe.unexpected_payload(resource, path, exc)
             raise PokedexUnavailable("unexpected response from PokeAPI", retryable=False) from exc
+
+
+if TYPE_CHECKING:
+    from pokedex_mcp.application.ports import PokedexRepository
+
+    _: type[PokedexRepository] = PokeApiRepository

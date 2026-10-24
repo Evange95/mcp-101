@@ -8,6 +8,8 @@ documentation; this file holds the rules to follow when changing code.
 A Pokédex MCP server: FastAPI app serving the MCP Streamable HTTP transport at `/mcp`,
 backed by the public PokeAPI. `agent/` is a separate project (its own `pyproject.toml`,
 `uv.lock`, README) with a Claude Agent SDK demo agent that talks to this server over MCP.
+Its checks are run from `agent/`: `uv run pytest`, `uv run ruff check .`,
+`uv run ruff format --check .`, `uv run mypy` (strict, tests included and fully annotated).
 
 ## Commands
 
@@ -17,6 +19,8 @@ uv run pokedex-mcp                        # run on http://127.0.0.1:8000/mcp
 uv run pytest                             # unit + integration, no network
 uv run pytest -m live                     # real PokeAPI (opt-in)
 uv run ruff check . && uv run ruff format --check . && uv run mypy   # must all pass
+uvx pyright                               # Pylance engine; must report 0 errors, 0 warnings
+uv run pytest -W error::DeprecationWarning -W error::PendingDeprecationWarning
 docker compose up --build                 # server + Grafana LGTM (http://localhost:3000)
 ```
 
@@ -38,6 +42,17 @@ Before saying a task is done: tests, ruff (lint + format) and mypy (strict) all 
   `RetryingPokedexRepository`), composed as `Cached(Retrying(PokeApi))` in `main.py`.
   When you add a method to `PokedexRepository`, add it to every implementation, the fake in
   `tests/fakes.py` and `REPOSITORY_OPERATIONS`.
+- `platform/`: infrastructure shared by every catalog. It must not import `domain/`,
+  `application/` or `adapters/` (`tests/unit/test_architecture.py` fails otherwise). It
+  holds the process lifecycle (`lifecycle.py`: starting → ready → draining → stopping),
+  `/livez` + `/readyz` + `/health` (alias of `/livez`) in `health.py`, `GracefulServer` in
+  `server.py` (uvicorn subclass that drains on SIGTERM), and `telemetry/` (`sdk.py`: OTel
+  providers, exporters, instrumentation; `log.py`: `configure_logging`, lifecycle probe). Liveness must never depend on PokeAPI or on
+  the phase. Readiness checks only *local* resources: never add a check on a dependency
+  shared by every replica (it would take them all out of rotation at once). Anything
+  that must run at shutdown goes in the lifespan teardown or `GracefulServer.shutdown`,
+  never only in a `finally` in `run()`, because uvicorn re-raises SIGTERM and kills the
+  process.
 - `main.py` is the only composition root: all wiring (adapters, probes, telemetry) is there.
 - Configuration lives in `config.py` (`POKEDEX_*` env vars); OpenTelemetry exporters use
   the standard `OTEL_*` vars instead of new settings.
@@ -53,10 +68,10 @@ for the full catalogue of spans, metrics and logs.
   `log_warning` or `increment_counter`.
 - Probe ports: `application/probes.py` (core) and `adapters/outbound/probes.py` (adapters).
   Every probe has a `Null…` implementation used as the default constructor argument.
-- Probe implementations live in `adapters/outbound/telemetry/`: `log.py` (stdlib logging,
-  always on), `otel.py` (OpenTelemetry spans and metrics), `fanout.py` (both at once),
-  `probes.py` (`build_probes`), `sdk.py` (`Telemetry`: providers, exporters,
-  instrumentation, log bridge).
+- Pokédex probe implementations live in `adapters/outbound/telemetry/`: `log.py` (stdlib
+  logging, always on), `otel.py` (OpenTelemetry spans and metrics), `fanout.py` (both at
+  once), `probes.py` (`build_probes`). The SDK bootstrap (`Telemetry`) is in
+  `platform/telemetry/sdk.py`.
 - `PokedexService._observed` reports **exactly one outcome per lookup**. Only
   `source_unavailable` and unexpected exceptions are span errors. `not_found` and
   `query_rejected` are normal answers and must not set `StatusCode.ERROR`.
@@ -86,7 +101,24 @@ for the full catalogue of spans, metrics and logs.
 ## Code style
 
 - Python 3.14: PEP 695 generics (`def f[T]`, `type X = ...`), `X | None`, `Self`.
+- No deprecated APIs: `@contextmanager` returns `Generator[T]` (not `Iterator[T]`),
+  `@asynccontextmanager` returns `AsyncGenerator[T]`, `type[...]` not `typing.Type`. pyright's
+  `reportDeprecated` and pytest with `-W error::DeprecationWarning` must stay clean.
+- Dependencies: keep them on the latest release (`uv lock --upgrade`, then raise the `>=`
+  bounds; `agent/` pins exact versions). `mcp` keeps `<3` until v3 is adopted on purpose.
 - mypy strict; ruff with the rule set in `pyproject.toml`; line length 100.
+- **Every implementation of a port (Protocol) ends its module with a static conformance
+  check**, including test doubles in `tests/fakes.py` and in `agent/tests`:
+
+  ```python
+  if TYPE_CHECKING:
+      _: type[PokedexRepository] = CachedPokedexRepository
+  ```
+
+  Use `type[...]`, not `typing.Type`. Import the protocol inside the `if TYPE_CHECKING:` block
+  when the module does not already import it. With several implementations in one module,
+  use one name per check (`_cache`, `_retry`, `_lookup_probe`, ...): mypy rejects
+  redefining `_`. Add the check whenever you create a new implementation.
 - Every module starts with a one-line docstring saying what it is. Comments explain *why*.
 - Dependencies via `uv add` (pins the lock file); never edit `uv.lock` by hand.
 

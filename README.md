@@ -29,7 +29,9 @@ adapters/inbound/mcp  ──▶  application (PokedexService)  ──▶  Pokede
                      adapters/outbound/telemetry ◀── CacheProbe, RetryProbe, PokeApiProbe
                      (logs + OpenTelemetry)
 domain/  — pure-Python entities and errors, no third-party imports
-main.py  — composition root (FastAPI app, /health, /mcp, telemetry wiring)
+platform/ — shared infrastructure, no domain imports: lifecycle, /livez + /readyz,
+            GracefulServer, OTel SDK bootstrap, console logging
+main.py  — composition root (FastAPI app, /mcp, telemetry wiring, run())
 ```
 
 ```
@@ -47,7 +49,14 @@ src/pokedex_mcp/
       retry.py                RetryingPokedexRepository: retries transient failures (tenacity)
       cache.py                CachedPokedexRepository: in-memory TTL + LRU cache
       probes.py               CacheProbe, RetryProbe, PokeApiProbe (+ Null implementations)
-      telemetry/              probe implementations and OpenTelemetry SDK setup (see below)
+      telemetry/              Pokédex probe implementations: logs, OTel, fan-out (see below)
+  platform/                   infrastructure shared by every catalog; imports no domain,
+                              application or adapter code (enforced by tests/unit/test_architecture.py)
+    lifecycle.py              Lifecycle phases (starting → ready → draining → stopping)
+    health.py                 /livez, /readyz, /health
+    server.py                 GracefulServer: drain on SIGTERM + graceful shutdown
+    telemetry/sdk.py          Telemetry: OTel providers, OTLP exporters, instrumentation
+    telemetry/log.py          configure_logging(), LoggingLifecycleProbe
   config.py                   Settings from POKEDEX_* env vars
   main.py                     composition root
 ```
@@ -97,15 +106,21 @@ be built without observability (as most tests do).
 
 ### Implementations (the adapters)
 
-`adapters/outbound/telemetry/`:
+Pokédex probes, in `adapters/outbound/telemetry/`:
 
 | Module | Role |
 |---|---|
-| `log.py` | `Logging*Probe`: structured stdlib log records. **Always on.** Also `configure_logging()` for the console. |
+| `log.py` | `Logging*Probe`: structured stdlib log records. **Always on.** |
 | `otel.py` | `Otel*Probe`: OpenTelemetry spans and metrics. On with `POKEDEX_TELEMETRY_ENABLED=true`. |
 | `fanout.py` | `FanOut*Probe`: forwards every announcement to several probes (logs + OTel). |
 | `probes.py` | `build_probes(telemetry)`: logs only when telemetry is `None`, logs + OTel otherwise. |
+
+Shared by every catalog, in `platform/telemetry/`:
+
+| Module | Role |
+|---|---|
 | `sdk.py` | `Telemetry`: tracer/meter/logger providers, OTLP/HTTP exporters, FastAPI + httpx instrumentation, stdlib logging → OTel logs bridge. |
+| `log.py` | `configure_logging()` for the console and `LoggingLifecycleProbe`. |
 
 Wiring happens only in `main.py`: `run()` creates `Telemetry.otlp()` when enabled,
 `install()`s it as the global provider (once per process — the MCP SDK emits its own spans
@@ -148,7 +163,7 @@ Lookup span attributes and events:
 does not exist or an invalid query is a normal answer to the caller, not a fault of the
 service, so it must not inflate error rates.
 
-Noise reduction: `/health` is not traced, and the per-message ASGI `http receive` /
+Noise reduction: `/health`, `/livez` and `/readyz` are not traced, and the per-message ASGI `http receive` /
 `http send` spans are disabled. httpx spans use OpenTelemetry's default HTTP semantic
 conventions (`http.status_code`, ...); set `OTEL_SEMCONV_STABILITY_OPT_IN=http` for the
 stable names (`http.response.status_code`, ...).
@@ -222,6 +237,111 @@ If no collector is reachable the server keeps working; the exporters only log wa
    code that announces it; test the OTel/log translation in `tests/unit/adapters/telemetry/`.
 5. Document it in the tables above.
 
+## Health checks and graceful shutdown (Kubernetes)
+
+The server is built to run as several replicas behind a Kubernetes Service. Manifests with
+probes, rolling update and a hardened security context are in
+[`deploy/k8s/deployment.yaml`](deploy/k8s/deployment.yaml).
+
+### Lifecycle
+
+The process goes through four phases, forward only (`platform/lifecycle.py`).
+Every change is logged by `pokedex_mcp.lifecycle`:
+
+```
+starting ──▶ ready ──▶ draining ──▶ stopping
+   lifespan      SIGTERM      drain period over
+   startup done               (or SIGINT / second signal)
+```
+
+| Phase | Meaning | `/livez` | `/readyz` |
+|---|---|---|---|
+| `starting` | lifespan startup not finished (HTTP client, MCP session manager) | 200 | 503 |
+| `ready` | serving traffic | 200 | 200 if every readiness check passes |
+| `draining` | SIGTERM received: still serving, asking to be removed from the Service | 200 | 503 |
+| `stopping` | not accepting connections; finishing in-flight requests and closing resources | 200 while it still answers | 503 |
+
+### What the probes check, and why
+
+- **`GET /livez`**: "the process is alive". It answers whenever the event loop can serve a
+  request. It never looks at PokeAPI or at the phase. If liveness followed an upstream
+  outage, Kubernetes would restart healthy pods in a loop. If it followed the draining
+  phase, Kubernetes would kill a pod during its graceful shutdown.
+- **`GET /readyz`**: "send me new traffic". 200 only in the `ready` phase *and* when the
+  local readiness checks pass (today: the PokeAPI HTTP client is open). The body says why:
+
+  ```json
+  {"status": "not_ready", "phase": "draining", "checks": {"pokeapi_client": "ok"}}
+  ```
+
+  **PokeAPI reachability is deliberately not a readiness check.** It is a dependency shared
+  by every replica. If PokeAPI went down, all pods would become unready together, the
+  Service would have no endpoints, and clients would get connection errors. Instead, a
+  ready pod can still answer from its cache, and otherwise returns a clear MCP tool error
+  ("Pokédex service temporarily unavailable"), which is visible in the
+  `pokedex.lookups{outcome="unavailable"}` metric.
+- **`GET /health`**: kept for existing callers (Docker `HEALTHCHECK`, scripts). It behaves
+  exactly like `/livez`.
+
+### Graceful shutdown
+
+What happens on `kubectl delete pod`, a rollout or a node drain:
+
+1. Kubernetes sends **SIGTERM** and, *at the same time*, starts removing the pod from the
+   Service endpoints. That removal takes a few seconds to reach kube-proxy, Ingress
+   controllers and load balancers, so new requests can still arrive.
+2. **Drain** (`POKEDEX_SHUTDOWN_DRAIN_SECONDS`, default 5): `GracefulServer` moves to
+   `draining`. `/readyz` answers 503 while every request, including new MCP calls, is still
+   served normally. Nothing is refused while traffic is being moved away.
+3. **Stop accepting, finish in-flight** (`POKEDEX_SHUTDOWN_TIMEOUT_SECONDS`, default 20):
+   uvicorn closes the listening socket and waits for open requests. After the timeout, it
+   cancels what is left. Long-lived MCP SSE streams are the usual reason to hit it. Without
+   this setting uvicorn would wait forever.
+4. **Release resources**: the lifespan shutdown closes the MCP session manager and the
+   PokeAPI HTTP client.
+5. **Flush telemetry**: spans, metrics and logs still buffered are exported before the
+   process exits. This runs inside the server's shutdown, not in a `finally` in `run()`:
+   after a signal-driven shutdown uvicorn re-raises the signal with the default handler,
+   which kills the process and skips any `finally`.
+
+Budget: drain + timeout + flush (a few seconds) must stay below the pod's
+`terminationGracePeriodSeconds` (30 s by default; 5 + 20 + flush fits). Otherwise
+Kubernetes sends SIGKILL.
+
+Other signals: **SIGINT** (Ctrl+C in a terminal) skips the drain. A **second signal**
+during the drain stops immediately. With `POKEDEX_SHUTDOWN_DRAIN_SECONDS=0`, SIGTERM goes
+straight to step 3.
+
+### Kubernetes manifest highlights
+
+- `startupProbe` on `/livez` (up to 30 s to boot), `livenessProbe` on `/livez` every 10 s
+  (3 failures → restart), and `readinessProbe` on `/readyz` every 2 s, where 1 failure
+  takes the pod out of rotation so draining is noticed fast.
+- `terminationGracePeriodSeconds: 30` and rolling update with `maxUnavailable: 0`: a new pod
+  is ready before an old one starts draining.
+- Non-root, read-only root filesystem (with an `emptyDir` on `/tmp`), all capabilities
+  dropped, `RuntimeDefault` seccomp.
+- `POKEDEX_ALLOWED_HOSTS` lists the Service hostnames, because `/mcp` rejects unknown `Host`
+  headers. Add your Ingress host there too.
+- The image's `CMD` uses exec form, so Python is PID 1 and receives SIGTERM directly.
+
+Validate and try it locally:
+
+```bash
+docker run --rm -i ghcr.io/yannh/kubeconform:v0.7.0 -summary -strict - < deploy/k8s/deployment.yaml
+
+# simulate a pod: read-only filesystem, no capabilities, then SIGTERM via docker stop
+docker build -t pokedex-mcp:latest .
+docker run -d --name pokedex --read-only --tmpfs /tmp --cap-drop ALL -p 127.0.0.1:8000:8000 pokedex-mcp:latest
+curl -i localhost:8000/readyz                      # 200 ready
+docker stop -t 30 pokedex & sleep 1
+curl -i localhost:8000/readyz                      # 503 draining
+curl -i localhost:8000/livez                       # 200 alive
+docker logs pokedex | grep lifecycle               # ready -> draining -> stopping
+```
+
+`docker compose` uses `stop_grace_period: 30s` for the same reason (its default is 10 s).
+
 ## Run
 
 ```bash
@@ -250,6 +370,8 @@ claude mcp add --transport http pokedex http://127.0.0.1:8000/mcp
 | `POKEDEX_ALLOWED_HOSTS` | empty — extra `Host` headers accepted by `/mcp` (comma-separated, `host:*` allowed) |
 | `POKEDEX_LOG_LEVEL` | `INFO` — level of the `pokedex_mcp` loggers (`DEBUG` shows cache hits and found lookups) |
 | `POKEDEX_TELEMETRY_ENABLED` | `false` — export traces, metrics and logs over OTLP/HTTP |
+| `POKEDEX_SHUTDOWN_DRAIN_SECONDS` | `5` — after SIGTERM, keep serving with `/readyz` at 503 for this long (`0` disables) |
+| `POKEDEX_SHUTDOWN_TIMEOUT_SECONDS` | `20` — then wait at most this long (integer seconds) for in-flight requests |
 
 With telemetry on, the exporters follow the standard `OTEL_*` variables:
 
@@ -289,7 +411,8 @@ The `--reload` mode calls `create_app()` directly. That means `POKEDEX_LOG_LEVEL
 applied and telemetry is off, so only warnings from `pokedex_mcp` reach the console. Use
 `uv run pokedex-mcp` when you need logs or telemetry.
 
-Check it is up: `curl http://127.0.0.1:8000/health` → `{"status":"ok"}`.
+Check it is up: `curl http://127.0.0.1:8000/readyz` → `{"status":"ready",...}` (see
+[Health checks](#health-checks-and-graceful-shutdown-kubernetes)).
 
 ### Try the tools by hand
 
@@ -343,6 +466,10 @@ uv run pytest -m live                           # contract test against the real
 | `tests/integration/pokeapi` | PokeAPI client and DTO mapping | HTTP mocked with `respx` |
 | `tests/integration/test_app.py`, `test_mcp_server.py` | full FastAPI + MCP app, tools end to end | HTTP mocked with `respx` |
 | `tests/integration/test_telemetry.py` | one tool call → one trace (HTTP → MCP → lookup → PokeAPI), logs correlated | in-memory exporters |
+| `tests/unit/platform` | lifecycle phases; drain logic of `GracefulServer` | none (fake clock) |
+| `tests/unit/test_architecture.py` | layering: `platform/` and `application/` import no outer layer, `domain/` only the standard library | none (reads the source) |
+| `tests/integration/test_health.py` | `/livez` and `/readyz` in every phase, failing checks | in-process app |
+| `tests/integration/test_shutdown.py` | a real server process gets SIGTERM: drains, exits 0, flushes telemetry to a fake OTLP collector | localhost subprocess (~5 s) |
 | `tests/live` | real PokeAPI still matches our DTOs | network, opt-in |
 
 Test helpers:
@@ -365,8 +492,52 @@ because OpenTelemetry only lets you set them once per process.
 uv run ruff check .            # lint (add --fix for safe autofixes)
 uv run ruff format .           # format (CI-style check: ruff format --check .)
 uv run mypy                    # strict type checking of src/ and tests/
-uv run pytest
+uvx pyright                    # the engine behind VS Code's Pylance, incl. deprecation warnings
+uv run pytest -W error::DeprecationWarning -W error::PendingDeprecationWarning
 ```
+
+`[tool.pyright]` in `pyproject.toml` is read by both the CLI and Pylance, so the editor and
+the terminal report the same problems. It enables `reportDeprecated`, which catches APIs
+deprecated in the standard library or in dependencies. For example, Python 3.14's
+`@contextmanager` wants `-> Generator[T]` instead of `-> Iterator[T]`, so every context
+manager here is annotated that way. mypy and pyright both run because they catch
+different things: for example only pyright flags `ReadableSpan.context` as optional.
+Running pytest with deprecations as errors catches runtime deprecations, such as
+tenacity's `wait_exponential_jitter(initial=)` (now `multiplier=`).
+
+### Dependencies
+
+Runtime dependencies use lower bounds (`>=`), raised to the latest release on every
+upgrade, and the exact versions are pinned in `uv.lock`. `mcp` also keeps an upper bound
+(`<3`). The server uses MCP SDK APIs (`MCPServer`, `streamable_http_app`, `ToolError`,
+`TransportSecuritySettings`) that a new major version is allowed to break. The bound makes
+the move to v3 a deliberate change instead of a side effect of `uv lock --upgrade`. The
+`agent/` project pins exact versions in `pyproject.toml`.
+
+```bash
+uv lock --upgrade && uv sync     # latest versions allowed by pyproject.toml
+uv pip list --outdated           # what is still behind (e.g. blocked by a bound)
+```
+
+After upgrading, run every check above, including pyright and pytest with deprecations as
+errors.
+
+The same checks run in `agent/` (its own `uv run ...`, see [agent/README.md](agent/README.md#tests)).
+
+**Protocol conformance checks.** Ports are `typing.Protocol`s, so a class satisfies a port
+just by having the right methods. Nothing ties it to the port explicitly, and a renamed or
+missing method only shows up where the object is used (or at runtime). That is why every
+implementation, including test doubles, ends its module with a static assertion that mypy
+checks and Python never runs:
+
+```python
+if TYPE_CHECKING:
+    _: type[PokedexRepository] = CachedPokedexRepository
+```
+
+If `CachedPokedexRepository` stops matching `PokedexRepository`, `uv run mypy` fails on that
+line and names the missing member. Modules with several implementations use one name per
+check (`_cache: type[CacheProbe] = ...`, `_retry: ...`), because mypy rejects redefining `_`.
 
 ### Debugging tips
 

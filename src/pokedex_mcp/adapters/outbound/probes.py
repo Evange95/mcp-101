@@ -3,7 +3,7 @@
 `resource` is the low-cardinality kind of data involved ("pokemon", "species", ...).
 """
 
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from pokedex_mcp.domain.errors import PokedexUnavailable
 
@@ -47,3 +47,9 @@ class NullRetryProbe:
 class NullPokeApiProbe:
     def unexpected_payload(self, resource: str, path: str, error: Exception) -> None:
         pass
+
+
+if TYPE_CHECKING:
+    _cache: type[CacheProbe] = NullCacheProbe
+    _retry: type[RetryProbe] = NullRetryProbe
+    _pokeapi: type[PokeApiProbe] = NullPokeApiProbe

@@ -5,19 +5,13 @@ them as attributes, correlated with the active trace.
 """
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
+from typing import TYPE_CHECKING
 
 from pokedex_mcp.application.probes import Lookup, LookupProbe
 from pokedex_mcp.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
-
-LOGGER_NAME = "pokedex_mcp"
-
-
-def configure_logging(level: str) -> None:
-    """Console logging: third parties stay at WARNING, `pokedex_mcp` logs at `level`."""
-    logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    logging.getLogger(LOGGER_NAME).setLevel(level)
+from pokedex_mcp.platform.telemetry.log import LOGGER_NAME
 
 
 class _LoggingLookupProbe:
@@ -59,7 +53,7 @@ class LoggingPokedexProbe:
         self._logger = logger or logging.getLogger(f"{LOGGER_NAME}.lookups")
 
     @contextmanager
-    def lookup(self, lookup: Lookup, query: str) -> Iterator[LookupProbe]:
+    def lookup(self, lookup: Lookup, query: str) -> Generator[LookupProbe]:
         yield _LoggingLookupProbe(self._logger, lookup, query)
 
 
@@ -108,3 +102,14 @@ class LoggingPokeApiProbe:
             error,
             extra={"pokedex.resource": resource, "url.path": path},
         )
+
+
+if TYPE_CHECKING:
+    from pokedex_mcp.adapters.outbound.probes import CacheProbe, PokeApiProbe, RetryProbe
+    from pokedex_mcp.application.probes import PokedexProbe
+
+    _lookup_probe: type[LookupProbe] = _LoggingLookupProbe
+    _pokedex: type[PokedexProbe] = LoggingPokedexProbe
+    _cache: type[CacheProbe] = LoggingCacheProbe
+    _retry: type[RetryProbe] = LoggingRetryProbe
+    _pokeapi: type[PokeApiProbe] = LoggingPokeApiProbe

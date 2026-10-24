@@ -1,7 +1,8 @@
 """Composite probes forwarding every announcement to several adapters (e.g. logs + OTel)."""
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import ExitStack, contextmanager
+from typing import TYPE_CHECKING
 
 from pokedex_mcp.adapters.outbound.probes import CacheProbe, PokeApiProbe, RetryProbe
 from pokedex_mcp.application.probes import Lookup, LookupProbe, PokedexProbe
@@ -38,7 +39,7 @@ class FanOutPokedexProbe:
         self._probes = probes
 
     @contextmanager
-    def lookup(self, lookup: Lookup, query: str) -> Iterator[LookupProbe]:
+    def lookup(self, lookup: Lookup, query: str) -> Generator[LookupProbe]:
         with ExitStack() as stack:
             yield _FanOutLookupProbe(
                 [stack.enter_context(probe.lookup(lookup, query)) for probe in self._probes]
@@ -80,3 +81,11 @@ class FanOutPokeApiProbe:
     def unexpected_payload(self, resource: str, path: str, error: Exception) -> None:
         for probe in self._probes:
             probe.unexpected_payload(resource, path, error)
+
+
+if TYPE_CHECKING:
+    _lookup_probe: type[LookupProbe] = _FanOutLookupProbe
+    _pokedex: type[PokedexProbe] = FanOutPokedexProbe
+    _cache: type[CacheProbe] = FanOutCacheProbe
+    _retry: type[RetryProbe] = FanOutRetryProbe
+    _pokeapi: type[PokeApiProbe] = FanOutPokeApiProbe

@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from pokedex_mcp import main
 from pokedex_mcp.config import Settings
 from pokedex_mcp.main import create_app
+from pokedex_mcp.platform.server import GracefulServer
 from tests.data import load_json
 
 BASE_URL = "https://pokeapi.test/api/v2"
@@ -54,11 +55,11 @@ def open_session(http: TestClient) -> dict[str, str]:
     return headers
 
 
-def test_health(http):
+def test_health_is_an_alias_of_livez(http):
     response = http.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {"status": "alive", "phase": "ready"}
 
 
 def test_mcp_endpoint_identifies_the_pokedex_server(http):
@@ -99,12 +100,23 @@ def test_accepts_configured_extra_hosts(http):
     assert response.status_code == 200
 
 
-def test_run_serves_the_app_with_configured_host_and_port(monkeypatch):
+def test_run_serves_the_app_with_configured_host_port_and_shutdown(monkeypatch):
     captured: dict[str, Any] = {}
     monkeypatch.setenv("POKEDEX_HOST", "0.0.0.0")
     monkeypatch.setenv("POKEDEX_PORT", "9000")
-    monkeypatch.setattr("uvicorn.run", lambda app, **kwargs: captured.update(kwargs))
+    monkeypatch.setenv("POKEDEX_SHUTDOWN_DRAIN_SECONDS", "3")
+    monkeypatch.setenv("POKEDEX_SHUTDOWN_TIMEOUT_SECONDS", "15")
+
+    def fake_run(server: GracefulServer) -> None:
+        captured.update(
+            host=server.config.host,
+            port=server.config.port,
+            timeout=server.config.timeout_graceful_shutdown,
+            drain=server._drain_seconds,
+        )
+
+    monkeypatch.setattr(GracefulServer, "run", fake_run)
 
     main.run()
 
-    assert captured == {"host": "0.0.0.0", "port": 9000}
+    assert captured == {"host": "0.0.0.0", "port": 9000, "timeout": 15, "drain": 3.0}

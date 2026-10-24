@@ -5,9 +5,9 @@ language and never talks to a tracing, metrics or logging library. Adapters deci
 each announcement becomes spans, metrics or log lines.
 """
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import AbstractContextManager, contextmanager
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from pokedex_mcp.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
 
@@ -55,5 +55,10 @@ class NullPokedexProbe:
     """Observes nothing: the default when no observability adapter is wired."""
 
     @contextmanager
-    def lookup(self, lookup: Lookup, query: str) -> Iterator[LookupProbe]:
+    def lookup(self, lookup: Lookup, query: str) -> Generator[LookupProbe]:
         yield _NullLookupProbe()
+
+
+if TYPE_CHECKING:
+    _lookup_probe: type[LookupProbe] = _NullLookupProbe
+    _pokedex: type[PokedexProbe] = NullPokedexProbe

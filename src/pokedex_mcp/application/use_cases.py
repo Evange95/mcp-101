@@ -2,7 +2,7 @@
 
 import re
 import unicodedata
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 
 from pokedex_mcp.application.ports import PokedexRepository
@@ -77,7 +77,7 @@ class PokedexService:
             return await self._repository.get_move(_normalized(probe, name_or_id))
 
     @contextmanager
-    def _observed(self, lookup: Lookup, query: str | int) -> Iterator[LookupProbe]:
+    def _observed(self, lookup: Lookup, query: str | int) -> Generator[LookupProbe]:
         """Bracket a lookup with its probe and report how it ended."""
         with self._probe.lookup(lookup, str(query)) as probe:
             try:

@@ -12,10 +12,11 @@ from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import SpanContext
 
-from pokedex_mcp.adapters.outbound.telemetry.sdk import Telemetry
 from pokedex_mcp.config import Settings
 from pokedex_mcp.main import create_app
+from pokedex_mcp.platform.telemetry.sdk import Telemetry
 from tests.data import load_json
 from tests.integration.test_app import BASE_URL, open_session, sse_messages
 
@@ -60,6 +61,12 @@ def parent_id(span: ReadableSpan) -> int | None:
     return span.parent.span_id if span.parent else None
 
 
+def context(span: ReadableSpan) -> SpanContext:
+    span_context: SpanContext | None = span.context
+    assert span_context is not None  # always set on finished SDK spans
+    return span_context
+
+
 def attributes(item: Any) -> dict[str, Any]:
     return dict(item.attributes or {})
 
@@ -72,10 +79,10 @@ def test_a_tool_call_is_traced_from_http_down_to_pokeapi(http):
     spans = {span.name: span for span in SPANS.get_finished_spans()}
     server, tool = spans["POST"], spans["tools/call get_pokemon"]
     lookup, outgoing = spans["pokedex.lookup pokemon"], spans["GET"]
-    assert len({span.context.trace_id for span in (server, tool, lookup, outgoing)}) == 1
-    assert parent_id(tool) == server.context.span_id
-    assert parent_id(lookup) == tool.context.span_id
-    assert parent_id(outgoing) == lookup.context.span_id
+    assert len({context(span).trace_id for span in (server, tool, lookup, outgoing)}) == 1
+    assert parent_id(tool) == context(server).span_id
+    assert parent_id(lookup) == context(tool).span_id
+    assert parent_id(outgoing) == context(lookup).span_id
     assert attributes(lookup)["pokedex.cache.result"] == "miss"
     assert attributes(outgoing)["http.status_code"] == 200
     assert not [name for name in spans if name.endswith(("http receive", "http send"))]
@@ -96,5 +103,5 @@ def test_probe_logs_are_exported_and_correlated_with_the_trace(http, telemetry, 
         for log in LOGS.get_finished_logs()
         if log.log_record.body == "type 'shadow' not found"
     ]
-    assert record.trace_id == lookup.context.trace_id
+    assert record.trace_id == context(lookup).trace_id
     assert attributes(record)["pokedex.outcome"] == "not_found"

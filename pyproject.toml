@@ -5,18 +5,18 @@ description = "MCP server exposing PokeAPI Pokédex data, hosted in FastAPI"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "fastapi>=0.141.1",
+    "fastapi>=0.162.0",
     "httpx>=0.28.1",
-    "mcp>=2.2,<3",
+    "mcp>=2.3.0,<3",
     "opentelemetry-api>=1.45.1",
     "opentelemetry-exporter-otlp-proto-http>=1.45.1",
     "opentelemetry-instrumentation-fastapi>=0.66b1",
     "opentelemetry-instrumentation-httpx>=0.66b1",
     "opentelemetry-instrumentation-logging>=0.66b1",
     "opentelemetry-sdk>=1.45.1",
-    "pydantic>=2.13.5",
-    "pydantic-settings>=2.15.0",
-    "tenacity>=9.1.4",
+    "pydantic>=2.14.1",
+    "pydantic-settings>=2.16.1",
+    "tenacity>=9.2.1",
     "uvicorn>=0.54.0",
 ]
 
@@ -42,6 +42,15 @@ include = ["*.py", "*.pyi", "**/pyproject.toml"]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "ASYNC", "PT", "N"]
 ignore = ["N818"]  # domain exception names (NotFound, InvalidQuery) are intentional
 
+[tool.pyright]
+# Same engine as Pylance: VS Code picks this up, so editor and CLI report the same issues.
+include = ["src", "tests"]
+pythonVersion = "3.14"
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "standard"
+reportDeprecated = "warning"
+
 [tool.mypy]
 python_version = "3.14"
 strict = true
@@ -56,8 +65,8 @@ disallow_incomplete_defs = false
 [dependency-groups]
 dev = [
     "anyio>=4.15.1",
-    "mypy>=2.3.1",
+    "mypy>=2.4.0",
     "pytest>=9.1.1",
     "respx>=0.23.1",
-    "ruff>=0.16.9",
+    "ruff>=0.17.2",
 ]

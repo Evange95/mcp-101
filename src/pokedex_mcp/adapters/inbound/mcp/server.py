@@ -1,6 +1,6 @@
 """Inbound adapter: exposes the Pokédex use cases as MCP tools."""
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Annotated
 
@@ -34,7 +34,7 @@ NameOrId = Annotated[
 
 
 @contextmanager
-def _domain_errors_as_tool_errors() -> Iterator[None]:
+def _domain_errors_as_tool_errors() -> Generator[None]:
     try:
         yield
     except PokedexError as exc:

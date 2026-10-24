@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     # Exports traces, metrics and logs over OTLP; tune with the standard OTEL_* variables.
     telemetry_enabled: bool = False
+    # Graceful shutdown on SIGTERM: keep serving with /readyz at 503 for `drain`, then wait up
+    # to `timeout` for in-flight requests. Their sum (plus a few seconds for the telemetry
+    # flush) must stay below the pod's terminationGracePeriodSeconds (30 by default).
+    shutdown_drain_seconds: float = Field(default=5.0, ge=0)
+    shutdown_timeout_seconds: int = Field(default=20, gt=0)
 
     @field_validator("allowed_hosts", mode="before")
     @classmethod

@@ -11,6 +11,8 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-lgtm:4318"
     depends_on:
       - otel-lgtm
+    # drain (5 s) + in-flight timeout (20 s) + telemetry flush; compose's default is 10 s.
+    stop_grace_period: 30s
     restart: unless-stopped
 
   # OpenTelemetry collector + Tempo (traces), Prometheus (metrics), Loki (logs) and Grafana.

@@ -21,5 +21,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
 USER app
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/livez', timeout=2)"]
+# Exec form: Python is PID 1 and receives SIGTERM directly, which starts the graceful shutdown.
+STOPSIGNAL SIGTERM
 CMD ["pokedex-mcp"]

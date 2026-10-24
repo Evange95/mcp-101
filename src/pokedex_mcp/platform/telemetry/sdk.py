@@ -36,6 +36,7 @@ class Telemetry:
     meter_provider: MeterProvider
     logger_provider: LoggerProvider
     _log_handler: LoggingHandler = field(init=False)
+    _stopped: bool = field(default=False, init=False)
 
     def __post_init__(self) -> None:
         self._log_handler = LoggingHandler(logger_provider=self.logger_provider)
@@ -86,7 +87,7 @@ class Telemetry:
             app,
             tracer_provider=self.tracer_provider,
             meter_provider=self.meter_provider,
-            excluded_urls="health",
+            excluded_urls="health,livez,readyz",
             exclude_spans=["receive", "send"],
         )
         HTTPXClientInstrumentor.instrument_client(
@@ -94,7 +95,10 @@ class Telemetry:
         )
 
     def shutdown(self) -> None:
-        """Flush pending telemetry and stop the exporters."""
+        """Flush pending telemetry and stop the exporters. Safe to call more than once."""
+        if self._stopped:
+            return
+        self._stopped = True
         logging.getLogger().removeHandler(self._log_handler)
         self.tracer_provider.shutdown()
         self.meter_provider.shutdown()

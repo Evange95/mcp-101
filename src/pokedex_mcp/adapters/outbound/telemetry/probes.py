@@ -21,8 +21,8 @@ from pokedex_mcp.adapters.outbound.telemetry.otel import (
     OtelPokedexProbe,
     OtelRetryProbe,
 )
-from pokedex_mcp.adapters.outbound.telemetry.sdk import Telemetry
 from pokedex_mcp.application.probes import PokedexProbe
+from pokedex_mcp.platform.telemetry.sdk import Telemetry
 
 
 @dataclass(frozen=True, slots=True)
