@@ -4,9 +4,11 @@ from collections.abc import Generator
 from contextlib import ExitStack, contextmanager
 from typing import TYPE_CHECKING
 
-from pokedex_mcp.adapters.outbound.probes import CacheProbe, PokeApiProbe, RetryProbe
+from pokedex_mcp.adapters.outbound.probes import PokeApiProbe
 from pokedex_mcp.application.probes import Lookup, LookupProbe, PokedexProbe
 from pokedex_mcp.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
+from pokedex_mcp.platform.resilience.cache import CacheProbe
+from pokedex_mcp.platform.resilience.retry import RetryProbe
 
 
 class _FanOutLookupProbe:
@@ -67,11 +69,9 @@ class FanOutRetryProbe:
     def __init__(self, *probes: RetryProbe) -> None:
         self._probes = probes
 
-    def retry_scheduled(
-        self, *, attempt: int, error: PokedexUnavailable, wait_seconds: float
-    ) -> None:
+    def retry_scheduled(self, *, attempt: int, reason: str, wait_seconds: float) -> None:
         for probe in self._probes:
-            probe.retry_scheduled(attempt=attempt, error=error, wait_seconds=wait_seconds)
+            probe.retry_scheduled(attempt=attempt, reason=reason, wait_seconds=wait_seconds)
 
 
 class FanOutPokeApiProbe:

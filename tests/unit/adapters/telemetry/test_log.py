@@ -59,9 +59,7 @@ def test_adapter_probes_log_retries_and_unexpected_payloads(caplog):
     caplog.set_level(logging.DEBUG, logger="pokedex_mcp")
 
     LoggingCacheProbe().miss("pokemon", expired=True)
-    LoggingRetryProbe().retry_scheduled(
-        attempt=1, error=PokedexUnavailable("HTTP 503"), wait_seconds=0.25
-    )
+    LoggingRetryProbe().retry_scheduled(attempt=1, reason="HTTP 503", wait_seconds=0.25)
     LoggingPokeApiProbe().unexpected_payload("Move", "move/x", ValueError("bad"))
 
     assert [(r.name, r.levelname, r.getMessage()) for r in caplog.records] == [

@@ -122,16 +122,14 @@ class OtelRetryProbe:
             "pokedex.source.retries", unit="{retry}", description="Retried data source calls"
         )
 
-    def retry_scheduled(
-        self, *, attempt: int, error: PokedexUnavailable, wait_seconds: float
-    ) -> None:
+    def retry_scheduled(self, *, attempt: int, reason: str, wait_seconds: float) -> None:
         self._retries.add(1)
         trace.get_current_span().add_event(
             "pokedex.retry",
             {
                 "pokedex.retry.attempt": attempt,
                 "pokedex.retry.wait_seconds": wait_seconds,
-                "pokedex.retry.reason": error.reason,
+                "pokedex.retry.reason": reason,
             },
         )
 
@@ -154,8 +152,10 @@ class OtelPokeApiProbe:
 
 
 if TYPE_CHECKING:
-    from pokedex_mcp.adapters.outbound.probes import CacheProbe, PokeApiProbe, RetryProbe
+    from pokedex_mcp.adapters.outbound.probes import PokeApiProbe
     from pokedex_mcp.application.probes import PokedexProbe
+    from pokedex_mcp.platform.resilience.cache import CacheProbe
+    from pokedex_mcp.platform.resilience.retry import RetryProbe
 
     _lookup_probe: type[LookupProbe] = _OtelLookupProbe
     _pokedex: type[PokedexProbe] = OtelPokedexProbe

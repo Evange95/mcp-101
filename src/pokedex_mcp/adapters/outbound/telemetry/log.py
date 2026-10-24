@@ -79,13 +79,11 @@ class LoggingRetryProbe:
     def __init__(self, logger: logging.Logger | None = None) -> None:
         self._logger = logger or logging.getLogger(f"{LOGGER_NAME}.retry")
 
-    def retry_scheduled(
-        self, *, attempt: int, error: PokedexUnavailable, wait_seconds: float
-    ) -> None:
+    def retry_scheduled(self, *, attempt: int, reason: str, wait_seconds: float) -> None:
         self._logger.warning(
             "attempt %d failed (%s), retrying in %.2fs",
             attempt,
-            error.reason,
+            reason,
             wait_seconds,
             extra={"pokedex.retry.attempt": attempt, "pokedex.retry.wait_seconds": wait_seconds},
         )
@@ -105,8 +103,10 @@ class LoggingPokeApiProbe:
 
 
 if TYPE_CHECKING:
-    from pokedex_mcp.adapters.outbound.probes import CacheProbe, PokeApiProbe, RetryProbe
+    from pokedex_mcp.adapters.outbound.probes import PokeApiProbe
     from pokedex_mcp.application.probes import PokedexProbe
+    from pokedex_mcp.platform.resilience.cache import CacheProbe
+    from pokedex_mcp.platform.resilience.retry import RetryProbe
 
     _lookup_probe: type[LookupProbe] = _LoggingLookupProbe
     _pokedex: type[PokedexProbe] = LoggingPokedexProbe

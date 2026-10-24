@@ -175,7 +175,7 @@ def test_retries_are_counted_and_added_as_span_events(otel):
     tracer = otel.tracer_provider.get_tracer("test")
 
     with tracer.start_as_current_span("call"):
-        probe.retry_scheduled(attempt=1, error=PokedexUnavailable("HTTP 503"), wait_seconds=0.2)
+        probe.retry_scheduled(attempt=1, reason="HTTP 503", wait_seconds=0.2)
 
     assert otel.counts("pokedex.source.retries") == {(): 1}
     (event,) = otel.finished_spans()["call"].events

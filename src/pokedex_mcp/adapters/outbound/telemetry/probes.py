@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from pokedex_mcp.adapters.outbound.probes import CacheProbe, PokeApiProbe, RetryProbe
+from pokedex_mcp.adapters.outbound.probes import PokeApiProbe
 from pokedex_mcp.adapters.outbound.telemetry.fanout import (
     FanOutCacheProbe,
     FanOutPokeApiProbe,
@@ -22,6 +22,8 @@ from pokedex_mcp.adapters.outbound.telemetry.otel import (
     OtelRetryProbe,
 )
 from pokedex_mcp.application.probes import PokedexProbe
+from pokedex_mcp.platform.resilience.cache import CacheProbe
+from pokedex_mcp.platform.resilience.retry import RetryProbe
 from pokedex_mcp.platform.telemetry.sdk import Telemetry
 
 

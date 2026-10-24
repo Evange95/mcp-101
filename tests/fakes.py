@@ -148,10 +148,8 @@ class RecordingAdapterProbe:
     def evicted(self, resource: str) -> None:
         self.events.append(f"evicted {resource}")
 
-    def retry_scheduled(
-        self, *, attempt: int, error: PokedexUnavailable, wait_seconds: float
-    ) -> None:
-        self.events.append(f"retry after attempt {attempt}: {error.reason}")
+    def retry_scheduled(self, *, attempt: int, reason: str, wait_seconds: float) -> None:
+        self.events.append(f"retry after attempt {attempt}: {reason}")
 
     def unexpected_payload(self, resource: str, path: str, error: Exception) -> None:
         self.events.append(f"unexpected payload {resource} {path}")
@@ -179,9 +177,11 @@ REPOSITORY_OPERATIONS: list[object] = [
 
 
 if TYPE_CHECKING:
-    from pokedex_mcp.adapters.outbound.probes import CacheProbe, PokeApiProbe, RetryProbe
+    from pokedex_mcp.adapters.outbound.probes import PokeApiProbe
     from pokedex_mcp.application.ports import PokedexRepository
     from pokedex_mcp.application.probes import PokedexProbe
+    from pokedex_mcp.platform.resilience.cache import CacheProbe
+    from pokedex_mcp.platform.resilience.retry import RetryProbe
 
     _repository: type[PokedexRepository] = FakePokedexRepository
     _lookup_probe: type[LookupProbe] = _RecordingLookupProbe

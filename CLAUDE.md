@@ -40,6 +40,10 @@ Before saying a task is done: tests, ruff (lint + format) and mypy (strict) all 
 - `adapters/outbound/`: `PokedexRepository` implementations. Cross-cutting behavior is a
   **decorator** implementing the same port (`CachedPokedexRepository`,
   `RetryingPokedexRepository`), composed as `Cached(Retrying(PokeApi))` in `main.py`.
+  Decorators stay one line per port method and delegate to `platform/resilience`
+  (`TtlLruCache.get_or_load`, `RetryPolicy.call`). Never reimplement caching or retry
+  logic in a decorator. The decorator only chooses the cache key and the domain's
+  `retry_if` / `reason` functions.
   When you add a method to `PokedexRepository`, add it to every implementation, the fake in
   `tests/fakes.py` and `REPOSITORY_OPERATIONS`.
 - `platform/`: infrastructure shared by every catalog. It must not import `domain/`,
@@ -66,7 +70,9 @@ for the full catalogue of spans, metrics and logs.
   repository adapters. Announce the event through a probe method named in business
   language (`not_found`, `retry_scheduled`, `hit`). Do not use technical names like
   `log_warning` or `increment_counter`.
-- Probe ports: `application/probes.py` (core) and `adapters/outbound/probes.py` (adapters).
+- Probe ports: `application/probes.py` (core), `adapters/outbound/probes.py` (PokeAPI
+  adapter), `platform/resilience/{cache,retry}.py` (`CacheProbe`, `RetryProbe`: generic, no
+  domain types — e.g. `retry_scheduled` takes a `reason: str`, not a domain error).
   Every probe has a `Null…` implementation used as the default constructor argument.
 - Pokédex probe implementations live in `adapters/outbound/telemetry/`: `log.py` (stdlib
   logging, always on), `otel.py` (OpenTelemetry spans and metrics), `fanout.py` (both at

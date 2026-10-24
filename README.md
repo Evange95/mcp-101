@@ -46,9 +46,11 @@ src/pokedex_mcp/
     inbound/mcp/              MCP tools (server.py) and their output schemas (schemas.py)
     outbound/
       pokeapi/                PokeApiRepository: httpx client, DTOs, DTO → domain mappers
-      retry.py                RetryingPokedexRepository: retries transient failures (tenacity)
-      cache.py                CachedPokedexRepository: in-memory TTL + LRU cache
-      probes.py               CacheProbe, RetryProbe, PokeApiProbe (+ Null implementations)
+      retry.py                RetryingPokedexRepository: one line per method over RetryPolicy;
+                              decides which errors are transient (retryable PokedexUnavailable)
+      cache.py                CachedPokedexRepository: one line per method over TtlLruCache;
+                              decides the cache key of each operation
+      probes.py               PokeApiProbe (+ Null implementation)
       telemetry/              Pokédex probe implementations: logs, OTel, fan-out (see below)
   platform/                   infrastructure shared by every catalog; imports no domain,
                               application or adapter code (enforced by tests/unit/test_architecture.py)
@@ -57,11 +59,23 @@ src/pokedex_mcp/
     server.py                 GracefulServer: drain on SIGTERM + graceful shutdown
     telemetry/sdk.py          Telemetry: OTel providers, OTLP exporters, instrumentation
     telemetry/log.py          configure_logging(), LoggingLifecycleProbe
+    resilience/cache.py       TtlLruCache + CacheProbe: TTL + LRU cache for any async loader
+    resilience/retry.py       RetryPolicy + RetryProbe: backoff + jitter, caller-supplied
+                              `retry_if` and `reason` (no domain error types)
   config.py                   Settings from POKEDEX_* env vars
   main.py                     composition root
 ```
 
 The repository chain is `Cached(Retrying(PokeApi))`: cache hits never pay for retries.
+
+**Why the decorators are this thin.** Caching and retrying are the same for every data
+source, but each port has its own methods. So the mechanism lives once in
+`platform/resilience` (`TtlLruCache.get_or_load`, `RetryPolicy.call`), and each repository
+decorator only says *what* to apply it to: the cache key of an operation, and which errors
+of its domain are transient. A new catalog (e.g. Digimon) writes two tiny decorators for its
+own port and gets the same behavior, probes and metrics, with no copy of the logic. The
+decorators keep the port's exact method signatures, so they stay type-checked against it
+(`TYPE_CHECKING` assertion). A generic wrapper based on `__getattr__` would lose that.
 
 ## Observability
 
@@ -96,8 +110,8 @@ or a metric is decided by adapters. Why do it this way:
 |---|---|---|
 | `PokedexProbe.lookup(lookup, query)` → `LookupProbe` | `application/probes.py` | context manager bracketing one lookup |
 | `LookupProbe` | `application/probes.py` | `query_normalized(key)`, `found()`, `not_found(error)`, `query_rejected(error)`, `source_unavailable(error)` |
-| `CacheProbe` | `adapters/outbound/probes.py` | `hit(resource)`, `miss(resource, expired=)`, `evicted(resource)` |
-| `RetryProbe` | `adapters/outbound/probes.py` | `retry_scheduled(attempt=, error=, wait_seconds=)` |
+| `CacheProbe` | `platform/resilience/cache.py` | `hit(resource)`, `miss(resource, expired=)`, `evicted(resource)` |
+| `RetryProbe` | `platform/resilience/retry.py` | `retry_scheduled(attempt=, reason=, wait_seconds=)` — `reason` comes from the caller's `reason` function (for the Pokédex: `PokedexUnavailable.reason`) |
 | `PokeApiProbe` | `adapters/outbound/probes.py` | `unexpected_payload(resource, path, error)` |
 
 `lookup` is one of `pokemon`, `species`, `pokemon_list`, `type`, `evolution_chain`, `move`.
@@ -229,7 +243,8 @@ If no collector is reachable the server keeps working; the exporters only log wa
 ### Adding a new announcement
 
 1. Add a method in the business language to the probe protocol (`application/probes.py`
-   for the core, `adapters/outbound/probes.py` for adapters) and to its `Null…` class.
+   for the core, `adapters/outbound/probes.py` for the PokeAPI adapter,
+   `platform/resilience/` for cache and retry) and to its `Null…` class.
 2. Call it from the code where the event happens. Nothing else in that code changes.
 3. Implement it in `log.py` (pick a level), `otel.py` (span attribute/event and/or metric,
    low-cardinality attributes only) and `fanout.py`.
@@ -466,7 +481,7 @@ uv run pytest -m live                           # contract test against the real
 | `tests/integration/pokeapi` | PokeAPI client and DTO mapping | HTTP mocked with `respx` |
 | `tests/integration/test_app.py`, `test_mcp_server.py` | full FastAPI + MCP app, tools end to end | HTTP mocked with `respx` |
 | `tests/integration/test_telemetry.py` | one tool call → one trace (HTTP → MCP → lookup → PokeAPI), logs correlated | in-memory exporters |
-| `tests/unit/platform` | lifecycle phases; drain logic of `GracefulServer` | none (fake clock) |
+| `tests/unit/platform` | lifecycle phases; drain logic of `GracefulServer`; `TtlLruCache` and `RetryPolicy` with plain values (no Pokédex types) | none (fake clock) |
 | `tests/unit/test_architecture.py` | layering: `platform/` and `application/` import no outer layer, `domain/` only the standard library | none (reads the source) |
 | `tests/integration/test_health.py` | `/livez` and `/readyz` in every phase, failing checks | in-process app |
 | `tests/integration/test_shutdown.py` | a real server process gets SIGTERM: drains, exits 0, flushes telemetry to a fake OTLP collector | localhost subprocess (~5 s) |
