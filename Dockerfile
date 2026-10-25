@@ -12,7 +12,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable
 
 FROM python:3.14-slim-trixie
-RUN groupadd --system app && useradd --system --gid app --home-dir /app app
+# Fixed ids, so Kubernetes can reference them (runAsUser, fsGroup for mounted Secrets).
+RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid app --home-dir /app app
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \

@@ -392,17 +392,24 @@ checks spans, span events, every log record and the provider's `repr`.
 that uses it):
 
 ```yaml
+securityContext:
+  fsGroup: 10001                        # the image's `app` group; Secret files get this group
 volumes:
   - name: digimon-token
     secret:
       secretName: digimon-api-token     # key "token"
-      defaultMode: 0400
+      defaultMode: 0440                 # owner root + group fsGroup may read; nobody else
 containers:
   - volumeMounts:
       - name: digimon-token
         mountPath: /var/run/secrets/digimon
         readOnly: true
 ```
+
+The container runs as the non-root `app` user. Without `fsGroup`, a Secret file is owned
+by root, and with a restrictive mode the app could not read it. The Dockerfile fixes the
+`app` user and group to 10001, so this value is stable. `deploy/k8s/deployment.yaml`
+already sets `runAsUser`, `runAsGroup` and `fsGroup` to it.
 
 Do not mount it with `subPath`: Kubernetes never updates `subPath` mounts, so rotation
 would silently stop working.
@@ -490,7 +497,8 @@ straight to step 3.
   takes the pod out of rotation so draining is noticed fast.
 - `terminationGracePeriodSeconds: 30` and rolling update with `maxUnavailable: 0`: a new pod
   is ready before an old one starts draining.
-- Non-root, read-only root filesystem (with an `emptyDir` on `/tmp`), all capabilities
+- Non-root with fixed ids (`runAsUser`/`runAsGroup`/`fsGroup` 10001, matching the
+  Dockerfile), read-only root filesystem (with an `emptyDir` on `/tmp`), all capabilities
   dropped, `RuntimeDefault` seccomp.
 - `POKEDEX_ALLOWED_HOSTS` lists the Service hostnames, because `/mcp` rejects unknown `Host`
   headers. Add your Ingress host there too.

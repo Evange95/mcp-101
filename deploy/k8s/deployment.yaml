@@ -24,6 +24,9 @@ spec:
       terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
+        runAsUser: 10001  # the image's `app` user (fixed in the Dockerfile)
+        runAsGroup: 10001
+        fsGroup: 10001  # mounted Secrets become readable by the app group
         seccompProfile:
           type: RuntimeDefault
       containers:
