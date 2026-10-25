@@ -60,6 +60,8 @@ Inside each catalog (paths below are relative to `catalogs/pokedex/`), hexagonal
   readiness_checks, running) and `build_mcp_server`, which builds **one** MCP server
   (`monsterdex`) at `/mcp` for every module. `main.build_modules` lists the modules.
   Every catalog has a `module.py` implementing it.
+- `platform/upstream/`: service access tokens and `BearerAuth` (see "Upstream
+  authentication rules").
 - `platform/` also holds the process lifecycle (`lifecycle.py`: starting → ready → draining → stopping),
   `/livez` + `/readyz` + `/health` (alias of `/livez`) in `health.py`, `GracefulServer` in
   `server.py` (uvicorn subclass that drains on SIGTERM), and `telemetry/` (`sdk.py`: OTel
@@ -72,6 +74,20 @@ Inside each catalog (paths below are relative to `catalogs/pokedex/`), hexagonal
 - `main.py` is the only composition root: all wiring (adapters, probes, telemetry) is there.
 - Configuration lives in `config.py` (`POKEDEX_*` env vars); OpenTelemetry exporters use
   the standard `OTEL_*` vars instead of new settings.
+
+## Upstream authentication rules
+
+- Service tokens come from `platform/upstream/auth.py`: `FileTokenProvider` (a mounted
+  Secret; the default for deployments) or `StaticTokenProvider` (local only). Attach them
+  with `platform.bearer_auth(tokens)` on `platform.http_client(...)`. Never set an
+  `Authorization` header by hand in an adapter.
+- Keep tokens as `SecretStr` and never log them, put them in spans, metrics, exception
+  messages or test assertion messages. Probes and errors name the upstream only.
+- In the catalog adapter: catch `TokenUnavailable`, and map HTTP 401/403 to the catalog's
+  non-retryable "unavailable" error. `BearerAuth` already retries once when a rotated
+  token is available, so the decorator must not retry auth failures.
+- Readiness may use `tokens.available()` (local). It must never call the upstream.
+- Mount Secrets as volumes without `subPath`, or rotation stops working.
 
 ## MCP tools rules
 

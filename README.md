@@ -91,7 +91,10 @@ src/pokedex_mcp/
     catalog.py                CatalogModule contract, Platform (instrumented HTTP clients),
                               build_mcp_server: one MCP server for every module
     telemetry/sdk.py          Telemetry: OTel providers, OTLP exporters, instrumentation
-    telemetry/log.py          configure_logging(), LoggingLifecycleProbe
+    telemetry/log.py          configure_logging(), LoggingLifecycleProbe, LoggingTokenProbe
+    telemetry/otel.py         OtelTokenProbe, FanOutTokenProbe (platform-level OTel probes)
+    upstream/auth.py          service access tokens: StaticTokenProvider, FileTokenProvider,
+                              BearerAuth (httpx), TokenProbe, TokenUnavailable
     resilience/cache.py       TtlLruCache + CacheProbe: TTL + LRU cache for any async loader
     resilience/retry.py       RetryPolicy + RetryProbe: backoff + jitter, caller-supplied
                               `retry_if` and `reason` (no domain error types)
@@ -178,6 +181,7 @@ or a metric is decided by adapters. Why do it this way:
 | `CacheProbe` | `platform/resilience/cache.py` | `hit(resource)`, `miss(resource, expired=)`, `evicted(resource)` |
 | `RetryProbe` | `platform/resilience/retry.py` | `retry_scheduled(attempt=, reason=, wait_seconds=)` — `reason` comes from the caller's `reason` function (for the Pokédex: `PokedexUnavailable.reason`) |
 | `PokeApiProbe` | `catalogs/pokedex/adapters/outbound/probes.py` | `unexpected_payload(resource, path, error)` |
+| `TokenProbe` | `platform/upstream/auth.py` | `token_loaded(upstream)`, `token_rejected(upstream, retried=)`, `token_unavailable(upstream, reason)` |
 
 `lookup` is one of `pokemon`, `species`, `pokemon_list`, `type`, `evolution_chain`, `move`.
 Every probe has a `Null…` implementation used as the constructor default, so any class can
@@ -257,6 +261,9 @@ stable names (`http.response.status_code`, ...).
 | `pokedex.cache.evictions` | counter | `pokedex.resource` |
 | `pokedex.source.retries` | counter | — |
 | `pokedex.pokeapi.unexpected_payloads` | counter | `pokedex.resource` |
+| `upstream.token.loads` | counter | `upstream.name` — first read and every rotation picked up |
+| `upstream.token.rejections` | counter | `upstream.name`, `upstream.token.retried` — **alert on this**: the upstream refuses our token |
+| `upstream.token.unavailable` | counter | `upstream.name` — the token file is missing, unreadable or empty |
 
 Plus the standard HTTP server/client metrics from the FastAPI and httpx instrumentation.
 Metric attributes are deliberately **low-cardinality**: user queries and keys live only on
@@ -275,6 +282,8 @@ spans and logs, never on metrics. Useful queries: hit ratio =
 | `pokedex_mcp.cache` | DEBUG | hit, miss, expired, evicted |
 | `pokedex_mcp.retry` | WARNING | a transient failure will be retried |
 | `pokedex_mcp.pokeapi` | WARNING | unexpected PokeAPI payload |
+| `pokedex_mcp.upstream.auth` | INFO | access token loaded or rotation picked up |
+| `pokedex_mcp.upstream.auth` | ERROR | token rejected by the upstream (401), or no token available |
 
 Records carry structured fields in `extra` (`pokedex.lookup`, `pokedex.query`,
 `pokedex.outcome`, `pokedex.cache.result`, ...). On the console (`uv run pokedex-mcp`)
@@ -316,6 +325,87 @@ If no collector is reachable the server keeps working; the exporters only log wa
 4. Record it in the test doubles in `tests/fakes.py` and assert it in the unit tests of the
    code that announces it; test the OTel/log translation in `tests/unit/adapters/telemetry/`.
 5. Document it in the tables above.
+
+## Upstream authentication (service access tokens)
+
+Upstream APIs that need a static service access token (the planned Digimon catalog)
+use the building blocks in `platform/upstream/auth.py`. PokeAPI is public and uses none
+of them.
+
+```python
+tokens = FileTokenProvider("digimon", Path("/var/run/secrets/digimon/token"),
+                           probe=platform.token_probe())
+http = platform.http_client(base_url=..., timeout=..., headers=...,
+                            auth=platform.bearer_auth(tokens))
+```
+
+**Where the token comes from**
+
+| Provider | Source | Rotation | Use it for |
+|---|---|---|---|
+| `FileTokenProvider` | a file, e.g. a Kubernetes Secret mounted as a volume | picked up without restart | Kubernetes, anything shared |
+| `StaticTokenProvider` | a value from settings (`SecretStr`), e.g. an env var | needs a restart | local development |
+
+A file is preferred to an environment variable: env vars show up in `kubectl describe`,
+in process dumps and in crash reports, and they cannot change without a restart.
+Kubernetes updates a mounted Secret in place (within about a minute), and the provider
+notices.
+
+**How `FileTokenProvider` reads it**
+
+- It strips surrounding whitespace, since Secret files often end with a newline.
+- It looks at the file again at most every `check_interval_seconds` (default 5), not on
+  every request. It compares modification time and size, and reads the file only when
+  they changed. Reads run in a worker thread, so the event loop never blocks on disk.
+- Concurrent requests share one reload, guarded by a lock: 100 parallel calls cause one
+  read.
+- A missing, unreadable or empty file raises `TokenUnavailable(upstream, reason)` and
+  announces `token_unavailable`. The catalog maps it to its own "source unavailable"
+  error, so the tool call fails with a readable message.
+- `available()` (does the file exist?) is a cheap, local check meant for `/readyz`.
+  Whether the upstream *accepts* the token is not a readiness check, for the same reason
+  PokeAPI reachability is not one.
+
+**How `BearerAuth` handles a 401**
+
+1. It sends `Authorization: Bearer <token>`.
+2. On `401 Unauthorized` it calls `invalidate()`, which forces the file to be checked
+   again right away, and asks for the token again.
+3. If the token **changed** (the Secret was rotated in the meantime), it retries the
+   request once with the new token. If that is also refused, it announces
+   `token_rejected(retried=True)`.
+4. If the token is **the same**, it does not retry: the upstream would refuse it again.
+   It announces `token_rejected(retried=False)`.
+5. The final response, 401 included, goes back to the catalog adapter. The adapter maps
+   401/403 to a non-retryable "unavailable" error: retrying a refused token only adds
+   load and can trigger rate limits.
+
+`BearerAuth` works only with `httpx.AsyncClient`, because reading the token is async. A
+sync client raises immediately.
+
+**The secret never leaks.** It is held as `SecretStr` (its `repr` is `**********`). Probes,
+log lines, metrics and errors name the upstream, never the token. The httpx
+instrumentation does not record request headers. `test_the_token_is_not_in_spans_or_logs`
+checks spans, span events, every log record and the provider's `repr`.
+
+**Mounting the Secret in Kubernetes** (added to the manifest together with the catalog
+that uses it):
+
+```yaml
+volumes:
+  - name: digimon-token
+    secret:
+      secretName: digimon-api-token     # key "token"
+      defaultMode: 0400
+containers:
+  - volumeMounts:
+      - name: digimon-token
+        mountPath: /var/run/secrets/digimon
+        readOnly: true
+```
+
+Do not mount it with `subPath`: Kubernetes never updates `subPath` mounts, so rotation
+would silently stop working.
 
 ## Health checks and graceful shutdown (Kubernetes)
 
@@ -548,7 +638,7 @@ uv run pytest -m live                           # contract test against the real
 | `tests/integration/test_app.py`, `test_mcp_server.py` | full FastAPI + MCP app, tools end to end | HTTP mocked with `respx` |
 | `tests/integration/test_tools_documented.py` | the README tool table lists exactly the exposed tools | in-process MCP client |
 | `tests/integration/test_telemetry.py` | one tool call → one trace (HTTP → MCP → lookup → PokeAPI), logs correlated | in-memory exporters |
-| `tests/unit/platform` | lifecycle phases; drain logic of `GracefulServer`; `TtlLruCache` and `RetryPolicy` with plain values (no Pokédex types) | none (fake clock) |
+| `tests/unit/platform` | lifecycle phases; drain logic of `GracefulServer`; `TtlLruCache` and `RetryPolicy` with plain values (no Pokédex types); token providers, `BearerAuth` 401 handling, no token leak in spans or logs; `Platform` HTTP clients and token probes | none (fake clock, temp files, `respx`) |
 | `tests/unit/test_architecture.py` | layering: `platform/` imports no catalog, catalogs don't import each other, in each catalog `application/` imports no adapters or platform and `domain/` only the standard library | none (reads the source) |
 | `tests/integration/test_health.py` | `/livez` and `/readyz` in every phase, failing checks | in-process app |
 | `tests/integration/test_shutdown.py` | a real server process gets SIGTERM: drains, exits 0, flushes telemetry to a fake OTLP collector | localhost subprocess (~5 s) |

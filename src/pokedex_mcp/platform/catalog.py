@@ -15,7 +15,10 @@ import httpx
 from mcp.server import MCPServer
 
 from pokedex_mcp.platform.health import ReadinessCheck
+from pokedex_mcp.platform.telemetry.log import LoggingTokenProbe
+from pokedex_mcp.platform.telemetry.otel import FanOutTokenProbe, OtelTokenProbe
 from pokedex_mcp.platform.telemetry.sdk import Telemetry
+from pokedex_mcp.platform.upstream.auth import AccessTokenProvider, BearerAuth, TokenProbe
 
 SERVER_NAME = "monsterdex"
 INTRODUCTION = "Creature catalogs. Every tool name starts with its catalog's prefix:"
@@ -28,13 +31,32 @@ class Platform:
     telemetry: Telemetry | None = None
 
     def http_client(
-        self, *, base_url: str, timeout: float, headers: Mapping[str, str]
+        self,
+        *,
+        base_url: str,
+        timeout: float,
+        headers: Mapping[str, str],
+        auth: httpx.Auth | None = None,
     ) -> httpx.AsyncClient:
-        """An HTTP client traced and metered like every other outbound call."""
-        client = httpx.AsyncClient(base_url=base_url, timeout=timeout, headers=dict(headers))
+        """An HTTP client traced and metered like every other outbound call.
+
+        Pass `auth=self.bearer_auth(tokens)` for an upstream that needs a service token.
+        """
+        client = httpx.AsyncClient(
+            base_url=base_url, timeout=timeout, headers=dict(headers), auth=auth
+        )
         if self.telemetry is not None:
             self.telemetry.instrument_http(client)
         return client
+
+    def token_probe(self) -> TokenProbe:
+        """Logs always; OpenTelemetry metrics and span events too when telemetry is on."""
+        if self.telemetry is None:
+            return LoggingTokenProbe()
+        return FanOutTokenProbe(LoggingTokenProbe(), OtelTokenProbe(self.telemetry.meter_provider))
+
+    def bearer_auth(self, tokens: AccessTokenProvider) -> BearerAuth:
+        return BearerAuth(tokens, probe=self.token_probe())
 
 
 class CatalogModule(Protocol):

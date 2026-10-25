@@ -4,6 +4,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from pokedex_mcp.platform.lifecycle import LifecycleProbe, Phase
+from pokedex_mcp.platform.upstream.auth import TokenProbe
 
 LOGGER_NAME = "pokedex_mcp"
 
@@ -28,5 +29,33 @@ class LoggingLifecycleProbe:
         )
 
 
+class LoggingTokenProbe:
+    """Never logs the token itself, only which upstream it is for."""
+
+    def __init__(self, logger: logging.Logger | None = None) -> None:
+        self._logger = logger or logging.getLogger(f"{LOGGER_NAME}.upstream.auth")
+
+    def token_loaded(self, upstream: str) -> None:
+        self._logger.info("access token for %s loaded", upstream, extra=_upstream(upstream))
+
+    def token_rejected(self, upstream: str, *, retried: bool) -> None:
+        self._logger.error(
+            "%s rejected the access token%s",
+            upstream,
+            " (also the freshly reloaded one)" if retried else " and no newer token is available",
+            extra=_upstream(upstream),
+        )
+
+    def token_unavailable(self, upstream: str, reason: str) -> None:
+        self._logger.error(
+            "no access token for %s: %s", upstream, reason, extra=_upstream(upstream)
+        )
+
+
+def _upstream(upstream: str) -> dict[str, str]:
+    return {"upstream.name": upstream}
+
+
 if TYPE_CHECKING:
-    _: type[LifecycleProbe] = LoggingLifecycleProbe
+    _lifecycle: type[LifecycleProbe] = LoggingLifecycleProbe
+    _token: type[TokenProbe] = LoggingTokenProbe
