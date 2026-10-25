@@ -8,6 +8,7 @@ services:
       POKEDEX_CACHE_TTL_SECONDS: "3600"
       POKEDEX_RETRY_ATTEMPTS: "3"
       POKEDEX_TELEMETRY_ENABLED: "true"
+      POKEDEX_DIGIMON_ENABLED: "true"  # digi-api.com is public: no token needed locally
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-lgtm:4318"
     depends_on:
       - otel-lgtm

@@ -1,7 +1,9 @@
 # Pokédex MCP
 
-An [MCP](https://modelcontextprotocol.io) server that exposes [PokeAPI](https://pokeapi.co)
-data to LLM clients, hosted in a FastAPI app (Streamable HTTP at `/mcp`).
+An [MCP](https://modelcontextprotocol.io) server that exposes creature catalogs to LLM
+clients, hosted in a FastAPI app (Streamable HTTP at `/mcp`): Pokémon from
+[PokeAPI](https://pokeapi.co) and, behind a feature flag, Digimon from
+[digi-api.com](https://digi-api.com).
 
 ## Tools
 
@@ -22,8 +24,17 @@ list the catalogs and their prefixes.
 | `pokemon_get_evolution_chain(pokemon)` | Full evolution tree for any Pokémon in the chain |
 | `pokemon_get_move(name_or_id)` | Type, damage class, power, accuracy, PP, effect |
 
-`tests/integration/test_tools_documented.py` fails if this table and the tools the server
-exposes differ. Add a row here whenever you add a tool.
+**Digimon** (`digimon_`, data from digi-api.com, off unless `POKEDEX_DIGIMON_ENABLED=true`)
+— `catalogs/digimon/adapters/inbound/mcp/tools.py`
+
+| Tool | Description |
+|---|---|
+| `digimon_get(name_or_id)` | Levels, types, attributes, fields, description, skills, image, digivolution counts |
+| `digimon_list(page=0, page_size=20, name=None, level=None, attribute=None)` | Paginated list; filters are case-insensitive, `name` matches part of the name |
+| `digimon_get_digivolutions(name_or_id)` | What it digivolves from and into, with the condition of each path |
+
+`tests/integration/test_tools_documented.py` fails if these tables and the tools the
+server exposes (with every feature flag on) differ. Add a row here whenever you add a tool.
 
 Every tool is read-only (`readOnlyHint`, `idempotentHint`, `openWorldHint`). Domain errors
 (not found, invalid query, source unavailable) come back as MCP tool errors (`isError:
@@ -35,7 +46,7 @@ Two levels:
 
 - **Catalogs** (`catalogs/<name>/`): one bounded context per data source, each hexagonal
   (ports & adapters) with its own domain, use cases, adapters and MCP tools. Today:
-  `pokedex`. Catalogs never import each other.
+  `pokedex` and `digimon`. Catalogs never import each other.
 - **Platform** (`platform/`): infrastructure shared by every catalog (lifecycle, health,
   graceful shutdown, telemetry bootstrap, generic cache and retry). It never imports a
   catalog.
@@ -61,6 +72,9 @@ platform/ — lifecycle, /livez + /readyz, GracefulServer, OTel SDK bootstrap, c
 main.py   — composition root (FastAPI app, /mcp, telemetry wiring, run())
 ```
 
+`catalogs/digimon/` has exactly the same shape: `DigimonService` → `DigimonRepository`
+port → `Cached(Retrying(DigiApi))`, with its own probes and telemetry adapters.
+
 ```
 src/pokedex_mcp/
   catalogs/
@@ -84,6 +98,13 @@ src/pokedex_mcp/
                               decides the cache key of each operation
           probes.py           PokeApiProbe (+ Null implementation)
           telemetry/          Pokédex probe implementations: logs, OTel, fan-out (see below)
+    digimon/                  the Digimon catalog (digi-api.com), same layout:
+      domain/                 Digimon, Digivolution, Skill, DigimonFilter, DigimonPage; errors
+      application/            DigimonRepository port, DigimonProbe, DigimonService
+      adapters/inbound/mcp/   DigimonTools (`digimon_*`) and output schemas
+      adapters/outbound/      digiapi/ (client, DTOs, mappers), cache.py, retry.py, probes.py,
+                              telemetry/ (logs, OTel, fan-out with `digimon.*` names)
+      module.py               DigimonModule: token provider, HTTP client, readiness checks
   platform/                   infrastructure shared by every catalog; imports no catalog
     lifecycle.py              Lifecycle phases (starting → ready → draining → stopping)
     health.py                 /livez, /readyz, /health
@@ -145,6 +166,61 @@ the pod ready. On shutdown it closes them in reverse order.
 5. Allow its tools in the agent (`agent/pokedex_agent/config.py`) and, if needed, add
    policy rules and eval cases.
 
+The Digimon catalog below was added exactly this way; read it as the worked example.
+
+## Digimon catalog (feature flag)
+
+The second catalog, built on [digi-api.com](https://digi-api.com) (free, data from
+Wikimon). It is **off by default**: `build_modules` adds `DigimonModule` only when
+`POKEDEX_DIGIMON_ENABLED=true`, so an existing deployment exposes exactly the same tools
+until someone turns it on. `compose.yaml` turns it on for the local demo.
+
+```bash
+POKEDEX_DIGIMON_ENABLED=true uv run pokedex-mcp
+# then, in the MCP Inspector: digimon_get {"name_or_id": "war greymon"}
+```
+
+**What digi-api does that shaped the code** (checked against the live API, recorded in
+`tests/data/digiapi/`, and re-checked by `tests/live/test_digiapi_live.py`):
+
+| digi-api behavior | What the catalog does |
+|---|---|
+| Names keep spaces and parentheses: `War Greymon`, `Greymon (Blue)`. `wargreymon` does not exist. | `normalize_key` only trims, collapses spaces and lowercases. It never turns spaces into dashes like the Pokédex does. The tool description and the MCP instructions tell the model that spaces count. |
+| Name lookup and list filters are case-insensitive. | Keys and filters are lowercased, so `Agumon` and `AGUMON` share one cache entry. |
+| An unknown Digimon is **HTTP 400** `{"error": 1, "message": "Digimon not found"}`, not 404. | `DigiApiRepository` maps a 400 whose message says "not found" (and a 404) to `NotFound`. Any other 400 is a non-retryable `DigimonUnavailable`. |
+| An unknown path returns the HTML website with **200**. | The DTO validation fails, the adapter announces `unexpected_payload` and fails without retrying. Keys containing `/ \ ? # %` are rejected before any call, so a key cannot change the path or the query. |
+| An empty page has no `content` field at all. | `content` defaults to `[]`. |
+| `""` means "unknown" (conditions, translations, release date). | Mapped to `None` in the domain. |
+| Agumon digivolves into 88 Digimon. | `digimon_get` returns only the counts (`digivolves_to_count`); the lists are in `digimon_get_digivolutions`. Both tools read the same record, so the second call is a cache hit. |
+
+**Design choices.**
+
+- **A graph, not a tree.** Pokémon evolve along a chain with one root, so the Pokédex has
+  `EvolutionChain`. Digimon digivolve from and into many others, and the paths form a
+  graph, so the domain has `prior_evolutions` / `next_evolutions` of `Digivolution(id,
+  name, condition)` instead. That is why there is no shared "Monster" model.
+- **Its own errors, probes and telemetry**, duplicated on purpose. `DigimonUnavailable`,
+  `DigimonProbe` and the `digimon.*` signals (see Observability) mirror the Pokédex ones,
+  but neither catalog imports the other. Only the mechanisms (`TtlLruCache`,
+  `RetryPolicy`, `BearerAuth`) are shared, from `platform/`.
+- **The service token is optional.** digi-api.com is public. The catalog sends a token
+  only when one is configured, because the same adapter is meant to work with an internal
+  mirror or a gateway that does require one (see Upstream authentication). The
+  `digi-api` name is what token probes and metrics report as `upstream.name`.
+- **Same settings for timeout, cache and retries** as the Pokédex
+  (`POKEDEX_HTTP_TIMEOUT_SECONDS`, `POKEDEX_CACHE_*`, `POKEDEX_RETRY_ATTEMPTS`). Each
+  catalog still has its own cache instance and its own HTTP client.
+
+**Errors the model sees** (as MCP tool errors, `isError: true`):
+
+| Situation | Message |
+|---|---|
+| unknown name | `Digimon 'wargreymon' not found` |
+| invalid input | `name or id must not be empty`, `page_size must be between 1 and 100`, ... |
+| digi-api down or slow (after retries) | `Digimon service temporarily unavailable: digi-api returned HTTP 503` |
+| token refused (401/403), never retried | `... digi-api refused our access token (HTTP 401)` |
+| token file missing or empty | `... no access token: the token file is empty` |
+
 ## Observability
 
 ### The approach: domain probes
@@ -187,6 +263,11 @@ or a metric is decided by adapters. Why do it this way:
 Every probe has a `Null…` implementation used as the constructor default, so any class can
 be built without observability (as most tests do).
 
+The Digimon catalog has the same ports in its own language: `DigimonProbe` / `LookupProbe`
+in `catalogs/digimon/application/probes.py` (lookups `digimon`, `digimon_list`,
+`digivolutions`) and `DigiApiProbe` in `catalogs/digimon/adapters/outbound/probes.py`. It
+reuses the generic `CacheProbe`, `RetryProbe` and `TokenProbe`.
+
 ### Implementations (the adapters)
 
 Pokédex probes, in `catalogs/pokedex/adapters/outbound/telemetry/`:
@@ -197,6 +278,9 @@ Pokédex probes, in `catalogs/pokedex/adapters/outbound/telemetry/`:
 | `otel.py` | `Otel*Probe`: OpenTelemetry spans and metrics. On with `POKEDEX_TELEMETRY_ENABLED=true`. |
 | `fanout.py` | `FanOut*Probe`: forwards every announcement to several probes (logs + OTel). |
 | `probes.py` | `build_probes(telemetry)`: logs only when telemetry is `None`, logs + OTel otherwise. |
+
+Digimon probes, in `catalogs/digimon/adapters/outbound/telemetry/`: the same four modules,
+emitting the `digimon.*` names listed under Traces, Metrics and Logs.
 
 Shared by every catalog, in `platform/telemetry/`:
 
@@ -242,6 +326,10 @@ Lookup span attributes and events:
 | event `pokedex.pokeapi.unexpected_payload` | PokeAPI answered with a payload that does not match the schema |
 | event `exception` | on `unavailable` / `error` |
 
+A Digimon tool call has the same tree with `digimon.lookup digimon` (or `digimon_list`,
+`digivolutions`) and the same attributes with a `digimon.` prefix (`digimon.key`,
+`digimon.outcome`, ...); its adapter event is `digimon.digiapi.unexpected_payload`.
+
 **Span status.** Only `unavailable` and `error` set the span status to `ERROR`. A Pokémon that
 does not exist or an invalid query is a normal answer to the caller, not a fault of the
 service, so it must not inflate error rates.
@@ -261,9 +349,17 @@ stable names (`http.response.status_code`, ...).
 | `pokedex.cache.evictions` | counter | `pokedex.resource` |
 | `pokedex.source.retries` | counter | — |
 | `pokedex.pokeapi.unexpected_payloads` | counter | `pokedex.resource` |
+| `digimon.lookups`, `digimon.lookup.duration` (s) | counter, histogram | `digimon.lookup`, `digimon.outcome` |
+| `digimon.cache.requests`, `digimon.cache.evictions` | counter | `digimon.resource` (`digimon`, `list`), `digimon.cache.result` |
+| `digimon.source.retries` | counter | — |
+| `digimon.digiapi.unexpected_payloads` | counter | `digimon.resource` |
 | `upstream.token.loads` | counter | `upstream.name` — first read and every rotation picked up |
 | `upstream.token.rejections` | counter | `upstream.name`, `upstream.token.retried` — **alert on this**: the upstream refuses our token |
 | `upstream.token.unavailable` | counter | `upstream.name` — the token file is missing, unreadable or empty |
+
+The Digimon metrics are separate names, not a `catalog` attribute on the Pokédex ones, so
+existing Pokédex dashboards are untouched. Merging both into `catalog.*` metrics is a
+planned, breaking change of its own.
 
 Plus the standard HTTP server/client metrics from the FastAPI and httpx instrumentation.
 Metric attributes are deliberately **low-cardinality**: user queries and keys live only on
@@ -282,6 +378,7 @@ spans and logs, never on metrics. Useful queries: hit ratio =
 | `pokedex_mcp.cache` | DEBUG | hit, miss, expired, evicted |
 | `pokedex_mcp.retry` | WARNING | a transient failure will be retried |
 | `pokedex_mcp.pokeapi` | WARNING | unexpected PokeAPI payload |
+| `pokedex_mcp.digimon.lookups`, `.digimon.cache`, `.digimon.retry`, `.digimon.digiapi` | as above | the same events for Digimon, fields prefixed `digimon.` |
 | `pokedex_mcp.upstream.auth` | INFO | access token loaded or rotation picked up |
 | `pokedex_mcp.upstream.auth` | ERROR | token rejected by the upstream (401), or no token available |
 
@@ -328,9 +425,11 @@ If no collector is reachable the server keeps working; the exporters only log wa
 
 ## Upstream authentication (service access tokens)
 
-Upstream APIs that need a static service access token (the planned Digimon catalog)
-use the building blocks in `platform/upstream/auth.py`. PokeAPI is public and uses none
-of them.
+Upstream APIs that need a static service access token use the building blocks in
+`platform/upstream/auth.py`. The Digimon catalog uses them when a token is configured
+(`POKEDEX_DIGIMON_TOKEN_FILE` or `POKEDEX_DIGIMON_TOKEN`; see
+`catalogs/digimon/module.py`, `build_token_provider`). PokeAPI is public and uses none of
+them.
 
 ```python
 tokens = FileTokenProvider("digimon", Path("/var/run/secrets/digimon/token"),
@@ -388,8 +487,8 @@ log lines, metrics and errors name the upstream, never the token. The httpx
 instrumentation does not record request headers. `test_the_token_is_not_in_spans_or_logs`
 checks spans, span events, every log record and the provider's `repr`.
 
-**Mounting the Secret in Kubernetes** (added to the manifest together with the catalog
-that uses it):
+**Mounting the Secret in Kubernetes** (`deploy/k8s/deployment.yaml` already has it for
+Digimon, as an `optional` Secret so the pod starts while the catalog is off):
 
 ```yaml
 securityContext:
@@ -503,6 +602,14 @@ straight to step 3.
 - `POKEDEX_ALLOWED_HOSTS` lists the Service hostnames, because `/mcp` rejects unknown `Host`
   headers. Add your Ingress host there too.
 - The image's `CMD` uses exec form, so Python is PID 1 and receives SIGTERM directly.
+- The Digimon catalog is wired but off (`POKEDEX_DIGIMON_ENABLED: "false"`). Its token
+  comes from the Secret `digimon-api-token` mounted at `/var/run/secrets/digimon` (no
+  `subPath`, mode `0440`, `optional: true`). To turn it on, create the Secret
+  (`kubectl create secret generic digimon-api-token --from-file=token=./token`) and set
+  the flag to `"true"`. If the flag is on and the Secret is missing, `/readyz` reports
+  `digimon.digiapi_token: failing`, so a misconfigured rollout never becomes ready
+  (`maxUnavailable: 0` keeps the old pods serving). Against the public digi-api.com,
+  drop `POKEDEX_DIGIMON_TOKEN_FILE` instead.
 
 Validate and try it locally:
 
@@ -551,6 +658,10 @@ claude mcp add --transport http monsterdex http://127.0.0.1:8000/mcp
 | `POKEDEX_TELEMETRY_ENABLED` | `false` — export traces, metrics and logs over OTLP/HTTP |
 | `POKEDEX_SHUTDOWN_DRAIN_SECONDS` | `5` — after SIGTERM, keep serving with `/readyz` at 503 for this long (`0` disables) |
 | `POKEDEX_SHUTDOWN_TIMEOUT_SECONDS` | `20` — then wait at most this long (integer seconds) for in-flight requests |
+| `POKEDEX_DIGIMON_ENABLED` | `false` — serve the `digimon_*` tools |
+| `POKEDEX_DIGIMON_BASE_URL` | `https://digi-api.com/api/v1` |
+| `POKEDEX_DIGIMON_TOKEN_FILE` | none — file holding the service token (a mounted Secret, re-read on rotation); adds the `digimon.digiapi_token` readiness check |
+| `POKEDEX_DIGIMON_TOKEN` | none — the token itself, for local runs only. Setting both token variables is a startup error. With neither, no `Authorization` header is sent |
 
 With telemetry on, the exporters follow the standard `OTEL_*` variables:
 
@@ -584,7 +695,9 @@ uv sync               # creates .venv with runtime + dev dependencies (pytest, r
 | Verbose domain logs (lookups, cache hits) | `POKEDEX_LOG_LEVEL=DEBUG uv run pokedex-mcp` |
 | Auto-reload on code changes | `uv run uvicorn pokedex_mcp.main:create_app --factory --reload` |
 | With traces/metrics/logs in Grafana | `docker compose up -d otel-lgtm` then `POKEDEX_TELEMETRY_ENABLED=true uv run pokedex-mcp` |
-| Everything in containers | `docker compose up --build` |
+| With the Digimon catalog | `POKEDEX_DIGIMON_ENABLED=true uv run pokedex-mcp` |
+| Digimon with a token, as in Kubernetes | `echo dev-token > /tmp/digimon-token` then `POKEDEX_DIGIMON_ENABLED=true POKEDEX_DIGIMON_TOKEN_FILE=/tmp/digimon-token uv run pokedex-mcp` |
+| Everything in containers (Digimon on) | `docker compose up --build` |
 
 The `--reload` mode calls `create_app()` directly. That means `POKEDEX_LOG_LEVEL` is not
 applied and telemetry is off, so only warnings from `pokedex_mcp` reach the console. Use
@@ -634,7 +747,8 @@ uv run pytest                                   # unit + integration, no network
 uv run pytest tests/unit                        # only the fast, pure tests
 uv run pytest tests/unit/adapters/telemetry     # one folder
 uv run pytest -k evolution                      # tests whose name matches
-uv run pytest -m live                           # contract test against the real PokeAPI
+uv run pytest tests/unit/digimon tests/integration/digimon   # one catalog
+uv run pytest -m live                           # contract tests against the real PokeAPI and digi-api
 ```
 
 | Folder | What it covers | I/O |
@@ -650,7 +764,9 @@ uv run pytest -m live                           # contract test against the real
 | `tests/unit/test_architecture.py` | layering: `platform/` imports no catalog, catalogs don't import each other, in each catalog `application/` imports no adapters or platform and `domain/` only the standard library | none (reads the source) |
 | `tests/integration/test_health.py` | `/livez` and `/readyz` in every phase, failing checks | in-process app |
 | `tests/integration/test_shutdown.py` | a real server process gets SIGTERM: drains, exits 0, flushes telemetry to a fake OTLP collector | localhost subprocess (~5 s) |
-| `tests/live` | real PokeAPI still matches our DTOs | network, opt-in |
+| `tests/unit/digimon` | Digimon use cases (key normalization keeps spaces), cache and retry decorators, log and OTel probes with `digimon.*` names | none (fake repository, in-memory exporters) |
+| `tests/integration/digimon` | digi-api client against recorded payloads (400 = not found, HTML page, empty page, token sent, 401/403 not retried, missing token file); `digimon_*` tools; the feature flag and the readiness checks it adds | HTTP mocked with `respx`, in-process MCP client and app |
+| `tests/live` | real PokeAPI and digi-api still match our DTOs | network, opt-in |
 
 Test helpers:
 
@@ -659,8 +775,16 @@ Test helpers:
   (record announcements as readable strings), `REPOSITORY_OPERATIONS` (one entry per port
   method, used to check that every decorator covers every operation).
 - `tests/builders.py`: `make_pokemon`, `make_species`, ... with sensible defaults.
-- `tests/data/pokeapi/*.json`: real PokeAPI payloads used by the integration tests. When
-  the DTOs change, refresh them from `https://pokeapi.co/api/v2/...` and run `-m live`.
+- `tests/digimon/`: the Digimon catalog's own doubles, kept apart like its code:
+  `FakeDigimonRepository`, `RecordingDigimonProbe`, `REPOSITORY_OPERATIONS` (`fakes.py`)
+  and `make_digimon` (`builders.py`). `RecordingAdapterProbe` from `tests/fakes.py` also
+  records digi-api announcements.
+- `tests/otel.py` + the `otel` fixture in `tests/conftest.py`: in-memory tracer and meter
+  providers for testing any catalog's OTel probes.
+- `tests/data/pokeapi/*.json` and `tests/data/digiapi/*.json`: real payloads used by the
+  integration tests (`load_json(name, "digiapi")`). The Agumon payload is trimmed (two
+  skills, a few digivolutions). When the DTOs change, refresh them from
+  `https://pokeapi.co/api/v2/...` or `https://digi-api.com/api/v1/...` and run `-m live`.
 
 Telemetry tests use the SDK's in-memory span exporter, metric reader and log exporter.
 `tests/integration/test_telemetry.py` installs global providers once for the whole module,

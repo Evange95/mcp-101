@@ -1,13 +1,4 @@
-from collections.abc import Iterator
-from dataclasses import dataclass
-from typing import Any
-
 import pytest
-from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import InMemoryMetricReader
-from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import StatusCode
 
 from pokedex_mcp.catalogs.pokedex.adapters.outbound.cache import CachedPokedexRepository
@@ -19,48 +10,9 @@ from pokedex_mcp.catalogs.pokedex.adapters.outbound.telemetry.otel import (
 from pokedex_mcp.catalogs.pokedex.application.use_cases import PokedexService
 from pokedex_mcp.catalogs.pokedex.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
 from tests.fakes import FakePokedexRepository, full_repository
+from tests.otel import Otel
 
 pytestmark = pytest.mark.anyio
-
-
-@dataclass
-class Otel:
-    spans: InMemorySpanExporter
-    metrics: InMemoryMetricReader
-    tracer_provider: TracerProvider
-    meter_provider: MeterProvider
-
-    def finished_spans(self) -> dict[str, ReadableSpan]:
-        return {span.name: span for span in self.spans.get_finished_spans()}
-
-    def points(self, metric_name: str) -> list[tuple[dict[str, Any], Any]]:
-        data = self.metrics.get_metrics_data()
-        assert data is not None
-        return [
-            (dict(point.attributes or {}), point)
-            for resource in data.resource_metrics
-            for scope in resource.scope_metrics
-            for metric in scope.metrics
-            if metric.name == metric_name
-            for point in metric.data.data_points
-        ]
-
-    def counts(self, metric_name: str) -> dict[tuple[str, ...], int]:
-        return {
-            tuple(str(v) for v in attributes.values()): point.value
-            for attributes, point in self.points(metric_name)
-        }
-
-
-@pytest.fixture
-def otel() -> Iterator[Otel]:
-    spans, metrics = InMemorySpanExporter(), InMemoryMetricReader()
-    tracer_provider = TracerProvider()
-    tracer_provider.add_span_processor(SimpleSpanProcessor(spans))
-    meter_provider = MeterProvider(metric_readers=[metrics])
-    yield Otel(spans, metrics, tracer_provider, meter_provider)
-    tracer_provider.shutdown()
-    meter_provider.shutdown()
 
 
 def service(otel: Otel, repository: FakePokedexRepository | None = None) -> PokedexService:

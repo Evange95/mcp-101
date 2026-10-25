@@ -1,8 +1,8 @@
 # Pokédex agent
 
 A demo agent built with the [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk)
-(`claude-agent-sdk`) that explores Pokédex data **only** through the repository's pokedex
-MCP server. It simulates an internal agent over sensitive data, so the focus is on tool
+(`claude-agent-sdk`) that explores Pokémon and Digimon data **only** through the
+repository's monsterdex MCP server. It simulates an internal agent over sensitive data, so the focus is on tool
 control, auditing and measurable evaluation.
 
 ## How it works
@@ -11,8 +11,9 @@ control, auditing and measurable evaluation.
   (`http://127.0.0.1:8000/mcp` by default). The server code is not modified.
 - **Only MCP tools.** `tools=[]` plus an explicit `disallowed_tools` list remove every
   built-in tool (Bash, Read, Write, Edit, WebSearch, WebFetch, …). Only the six
-  `mcp__monsterdex__pokemon_*` tools are pre-approved (listed one by one in `config.py`,
-  not by pattern), and `permission_mode="dontAsk"` denies
+  `mcp__monsterdex__pokemon_*` and the three `mcp__monsterdex__digimon_*` tools are
+  pre-approved (listed one by one in `config.py`, not by pattern), and
+  `permission_mode="dontAsk"` denies
   anything else. `setting_sources=[]` keeps your `~/.claude` settings, hooks and plugins
   out of the agent.
 - **Roles and policy.** The role (`trainer` or `professor`) comes from
@@ -103,13 +104,17 @@ role. A case can check that:
 - the answer does not leak data (`absent`), e.g. that a denied request is not answered
   from the model's own knowledge.
 
+The `trainer-agumon-*` cases use the Digimon catalog, which the server serves only when
+started with `POKEDEX_DIGIMON_ENABLED=true uv run pokedex-mcp`. Without it those cases
+fail (the tools do not exist), the Pokémon ones are unaffected.
+
 The run writes [`evals/report.md`](evals/report.md) (outcome, tools called, time and
 cost per case) and exits with a non-zero code if any case fails, so it can gate CI.
 A session that does not finish within 180 seconds fails its case.
 
 The committed `evals/report.md` comes from a run made before the tools were renamed with
-the `pokemon_` prefix, so it still shows the old names (`get_pokemon`, ...). The next
-`pokedex-agent eval` run rewrites it.
+the `pokemon_` prefix, so it still shows the old names (`get_pokemon`, ...) and no Digimon
+cases. The next `pokedex-agent eval` run rewrites it.
 
 ### Audit log
 

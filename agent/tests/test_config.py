@@ -7,6 +7,7 @@ import pytest
 from pokedex_agent.audit import AuditLog
 from pokedex_agent.config import (
     BUILTIN_TOOLS,
+    DIGIMON_TOOLS,
     POKEDEX_TOOLS,
     Settings,
     build_options,
@@ -54,13 +55,17 @@ def test_role_is_required(monkeypatch: pytest.MonkeyPatch) -> None:
         Settings.from_env()
 
 
-def test_options_expose_only_the_pokedex_mcp_tools(guard: ToolGuard) -> None:
+def test_options_expose_only_the_monsterdex_mcp_tools(guard: ToolGuard) -> None:
     options = build_options(Settings("trainer", "claude-opus-5", "http://mcp.test/mcp"), guard)
 
     assert options.tools == []  # every built-in tool disabled
     assert set(BUILTIN_TOOLS) <= set(options.disallowed_tools)
     assert {"Bash", "Read", "Write", "Edit", "WebSearch", "WebFetch"} <= set(BUILTIN_TOOLS)
-    assert options.allowed_tools == [f"mcp__monsterdex__{tool}" for tool in POKEDEX_TOOLS]
+    assert options.allowed_tools == [
+        f"mcp__monsterdex__{tool}" for tool in (*POKEDEX_TOOLS, *DIGIMON_TOOLS)
+    ]
+    assert all(tool.startswith("pokemon_") for tool in POKEDEX_TOOLS)
+    assert all(tool.startswith("digimon_") for tool in DIGIMON_TOOLS)
     assert options.permission_mode == "dontAsk"  # anything not pre-approved is denied
     assert options.mcp_servers == {"monsterdex": {"type": "http", "url": "http://mcp.test/mcp"}}
     assert options.strict_mcp_config is True

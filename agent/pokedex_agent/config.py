@@ -19,6 +19,13 @@ POKEDEX_TOOLS = (
     "pokemon_get_evolution_chain",
     "pokemon_get_move",
 )
+# Served only when the server runs with POKEDEX_DIGIMON_ENABLED=true; allowing a tool the
+# server does not expose is harmless (the model never sees it).
+DIGIMON_TOOLS = (
+    "digimon_get",
+    "digimon_list",
+    "digimon_get_digivolutions",
+)
 # Claude Code built-ins. `tools=[]` already removes them; listing them as
 # disallowed as well makes the intent explicit and survives SDK default changes.
 BUILTIN_TOOLS = (
@@ -45,7 +52,7 @@ BUILTIN_TOOLS = (
 )
 
 SYSTEM_PROMPT = """\
-You are an internal Pokédex data assistant. The current user's role is: {role}.
+You are an internal Pokémon and Digimon data assistant. The current user's role is: {role}.
 Answer only with data returned by the monsterdex tools; never rely on prior knowledge.
 If the tools do not return the requested data, say clearly that you could not find it.
 If a tool call is denied, tell the user it was denied and give the reason you received.
@@ -77,7 +84,7 @@ def build_options(settings: Settings, guard: ToolGuard) -> ClaudeAgentOptions:
         mcp_servers={MCP_SERVER_NAME: {"type": "http", "url": settings.mcp_url}},
         strict_mcp_config=True,
         tools=[],
-        allowed_tools=[f"{MCP_TOOL_PREFIX}{tool}" for tool in POKEDEX_TOOLS],
+        allowed_tools=[f"{MCP_TOOL_PREFIX}{tool}" for tool in (*POKEDEX_TOOLS, *DIGIMON_TOOLS)],
         disallowed_tools=list(BUILTIN_TOOLS),
         permission_mode="dontAsk",
         setting_sources=[],

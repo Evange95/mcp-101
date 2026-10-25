@@ -5,6 +5,7 @@
 #   denied:   at least one tool call must be denied by the policy
 #   absent:   text that must NOT appear in the answer (e.g. data leaked from prior knowledge)
 # Questions are in Italian, so keywords accept both the PokeAPI (English) and Italian names.
+# The digimon-* cases need the server started with POKEDEX_DIGIMON_ENABLED=true.
 
 - id: trainer-pikachu-profile
   role: trainer
@@ -53,3 +54,19 @@
   expect:
     denied: true
     absent: [generation-ii]
+
+- id: trainer-agumon-profile
+  role: trainer
+  question: "A che livello appartiene Agumon e qual è il suo attributo?"
+  expect:
+    tools: [digimon_get]
+    keywords:
+      - [child, rookie]
+      - [vaccine, vaccino]
+
+- id: trainer-agumon-digivolutions
+  role: trainer
+  question: "In quali Digimon può digievolvere Agumon? Dimmene almeno tre."
+  expect:
+    tools: [digimon_get_digivolutions]
+    keywords: [greymon]

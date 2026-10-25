@@ -14,6 +14,9 @@ def test_defaults():
     assert settings.retry_attempts == 3
     assert (settings.host, settings.port) == ("127.0.0.1", 8000)
     assert settings.allowed_hosts == []
+    assert settings.digimon_enabled is False
+    assert settings.digimon_base_url == "https://digi-api.com/api/v1"
+    assert (settings.digimon_token_file, settings.digimon_token) == (None, None)
 
 
 def test_reads_prefixed_environment_variables(monkeypatch):
@@ -48,4 +51,32 @@ def test_rejects_invalid_values(monkeypatch, env):
         monkeypatch.setenv(name, value)
 
     with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_reads_the_digimon_settings(monkeypatch):
+    monkeypatch.setenv("POKEDEX_DIGIMON_ENABLED", "true")
+    monkeypatch.setenv("POKEDEX_DIGIMON_TOKEN_FILE", "/var/run/secrets/digimon/token")
+
+    settings = Settings()
+
+    assert settings.digimon_enabled is True
+    assert str(settings.digimon_token_file) == "/var/run/secrets/digimon/token"
+
+
+def test_the_digimon_token_is_secret(monkeypatch):
+    monkeypatch.setenv("POKEDEX_DIGIMON_TOKEN", "s3cret")
+
+    settings = Settings()
+
+    assert settings.digimon_token is not None
+    assert settings.digimon_token.get_secret_value() == "s3cret"
+    assert "s3cret" not in repr(settings)
+
+
+def test_rejects_two_digimon_token_sources(monkeypatch):
+    monkeypatch.setenv("POKEDEX_DIGIMON_TOKEN", "s3cret")
+    monkeypatch.setenv("POKEDEX_DIGIMON_TOKEN_FILE", "/tmp/token")
+
+    with pytest.raises(ValidationError, match="not both"):
         Settings()

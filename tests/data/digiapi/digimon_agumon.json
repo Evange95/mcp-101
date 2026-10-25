@@ -1,0 +1,100 @@
+{
+  "id": 1,
+  "name": "Agumon",
+  "xAntibody": false,
+  "images": [
+    {
+      "href": "https://digi-api.com/images/digimon/w/Agumon.png",
+      "transparent": false
+    }
+  ],
+  "levels": [
+    {
+      "id": 4,
+      "level": "Child"
+    }
+  ],
+  "types": [
+    {
+      "id": 1,
+      "type": "Reptile"
+    }
+  ],
+  "attributes": [
+    {
+      "id": 4,
+      "attribute": "Vaccine"
+    }
+  ],
+  "fields": [
+    {
+      "id": 8,
+      "field": "Deep Savers",
+      "image": "https://digi-api.com/images/etc/fields/Deep_Savers.png"
+    },
+    {
+      "id": 5,
+      "field": "Dragon's Roar",
+      "image": "https://digi-api.com/images/etc/fields/Dragon's_Roar.png"
+    }
+  ],
+  "releaseDate": "1997",
+  "descriptions": [
+    {
+      "origin": "reference_book",
+      "language": "jap",
+      "description": "成長して二足歩行ができるようになった、小型の恐竜の様な姿をした爬虫類型デジモン。まだ成長途中なので力は弱いが、性格はかなり獰猛で恐いもの知らず。両手足には硬く鋭い爪が生えており、戦闘においても威力を発揮する。力ある偉大なデジモンへの進化を予測させる存在でもある。必殺技は口から火炎の息を吐き敵を攻撃する『ベビーフレイム』。"
+    },
+    {
+      "origin": "reference_book",
+      "language": "en_us",
+      "description": "A Reptile Digimon with an appearance resembling a small dinosaur, it has grown and become able to walk on two legs. Its strength is weak as it is still in the process of growing, but it has a fearless and rather ferocious personality. Hard, sharp claws grow from both its hands and feet, and their power is displayed in battle. It also foreshadows an evolution into a great and powerful Digimon. Its Special Move is spitting a fiery breath from its mouth to attack the opponent (Baby Flame)."
+    }
+  ],
+  "skills": [
+    {
+      "id": 1,
+      "skill": "Baby Flame",
+      "translation": "",
+      "description": "Spits a fiery breath from its mouth to attack the opponent."
+    },
+    {
+      "id": 2,
+      "skill": "Spitfire",
+      "translation": "",
+      "description": "Spits out fireballs."
+    }
+  ],
+  "priorEvolutions": [
+    {
+      "id": 472,
+      "digimon": "Gigimon",
+      "condition": "",
+      "image": "https://digi-api.com/images/digimon/w/Gigimon.png",
+      "url": "https://digi-api.com/api/v1/digimon/472"
+    },
+    {
+      "id": 36,
+      "digimon": "Koromon",
+      "condition": "",
+      "image": "https://digi-api.com/images/digimon/w/Koromon.png",
+      "url": "https://digi-api.com/api/v1/digimon/36"
+    }
+  ],
+  "nextEvolutions": [
+    {
+      "id": 493,
+      "digimon": "Agnimon",
+      "condition": "with or without the Human Spirit of Fire or Coronamon",
+      "image": "https://digi-api.com/images/digimon/w/Agnimon.png",
+      "url": "https://digi-api.com/api/v1/digimon/493"
+    },
+    {
+      "id": 34,
+      "digimon": "Greymon",
+      "condition": "with or without Gabumon",
+      "image": "https://digi-api.com/images/digimon/w/Greymon.png",
+      "url": "https://digi-api.com/api/v1/digimon/34"
+    }
+  ]
+}

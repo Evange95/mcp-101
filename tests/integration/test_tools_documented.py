@@ -22,7 +22,8 @@ def documented_tools() -> set[str]:
 
 
 async def test_readme_documents_every_exposed_tool_and_nothing_else():
-    mcp = build_mcp_server(build_modules(Settings(), Platform()))
+    # Every catalog on, feature flags included: the README documents all of them.
+    mcp = build_mcp_server(build_modules(Settings(digimon_enabled=True), Platform()))
     async with Client(mcp) as client:
         exposed = {tool.name for tool in (await client.list_tools()).tools}
 

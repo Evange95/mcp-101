@@ -44,6 +44,11 @@ spec:
               value: "20"
             - name: POKEDEX_TELEMETRY_ENABLED
               value: "false"
+            # Digimon catalog. Once enabled, /readyz also requires the token file to exist.
+            - name: POKEDEX_DIGIMON_ENABLED
+              value: "false"
+            - name: POKEDEX_DIGIMON_TOKEN_FILE
+              value: /var/run/secrets/digimon/token
             # - name: OTEL_EXPORTER_OTLP_ENDPOINT
             #   value: "http://otel-collector.observability:4318"
           # Startup: allow up to 30 s to boot before liveness starts counting.
@@ -74,9 +79,17 @@ spec:
           volumeMounts:
             - name: tmp  # the root filesystem is read-only; Python and httpx may need a temp dir
               mountPath: /tmp
+            - name: digimon-token  # no subPath: Kubernetes would never update the file
+              mountPath: /var/run/secrets/digimon
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: digimon-token
+          secret:
+            secretName: digimon-api-token  # key "token"
+            defaultMode: 0440  # root + the fsGroup may read; nobody else
+            optional: true  # the pod starts without it while the catalog is off
 ---
 apiVersion: v1
 kind: Service

@@ -1,8 +1,9 @@
 """Runtime configuration, read from `POKEDEX_*` environment variables."""
 
-from typing import Annotated, Literal
+from pathlib import Path
+from typing import Annotated, Literal, Self
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -25,6 +26,19 @@ class Settings(BaseSettings):
     # flush) must stay below the pod's terminationGracePeriodSeconds (30 by default).
     shutdown_drain_seconds: float = Field(default=5.0, ge=0)
     shutdown_timeout_seconds: int = Field(default=20, gt=0)
+    # Digimon catalog (digi-api.com), off by default. It shares the HTTP timeout, cache and
+    # retry settings above. A service token is sent only when one is configured: the file
+    # (a mounted Kubernetes Secret, re-read on rotation) or, for local runs, the value.
+    digimon_enabled: bool = False
+    digimon_base_url: str = "https://digi-api.com/api/v1"
+    digimon_token_file: Path | None = None
+    digimon_token: SecretStr | None = None
+
+    @model_validator(mode="after")
+    def _one_digimon_token_source(self) -> Self:
+        if self.digimon_token_file is not None and self.digimon_token is not None:
+            raise ValueError("set POKEDEX_DIGIMON_TOKEN_FILE or POKEDEX_DIGIMON_TOKEN, not both")
+        return self
 
     @field_validator("allowed_hosts", mode="before")
     @classmethod

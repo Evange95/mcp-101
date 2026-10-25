@@ -1,0 +1,10 @@
+{
+  "pageable": {
+    "currentPage": 0,
+    "elementsOnPage": 0,
+    "totalElements": 0,
+    "totalPages": 0,
+    "previousPage": "",
+    "nextPage": ""
+  }
+}

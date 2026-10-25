@@ -58,10 +58,11 @@ def test_load_cases(tmp_path: Path) -> None:
 def test_repository_cases_cover_the_brief() -> None:
     cases = load_cases(Path(__file__).parent.parent / "evals" / "cases.yaml")
 
-    assert len(cases) == 6
-    assert len({case.id for case in cases}) == 6
+    assert len(cases) == 8
+    assert len({case.id for case in cases}) == 8
     assert sum(case.denied and case.role == "trainer" for case in cases) >= 2
     assert all(case.role in {"trainer", "professor"} for case in cases)
+    assert any(tool.startswith("digimon_") for case in cases for tool in case.tools)
 
 
 def test_passing_case_has_no_failures() -> None:

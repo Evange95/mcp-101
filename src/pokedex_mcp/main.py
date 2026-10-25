@@ -7,6 +7,7 @@ import uvicorn
 from fastapi import FastAPI
 from mcp.server.transport_security import TransportSecuritySettings
 
+from pokedex_mcp.catalogs.digimon.module import DigimonModule
 from pokedex_mcp.catalogs.pokedex.module import PokedexModule
 from pokedex_mcp.config import Settings
 from pokedex_mcp.platform.catalog import (
@@ -27,7 +28,10 @@ LOCAL_ORIGINS = ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
 
 def build_modules(settings: Settings, platform: Platform) -> list[CatalogModule]:
     """The catalogs this deployment serves. Add a catalog here (behind a setting if optional)."""
-    return [PokedexModule(settings, platform)]
+    modules: list[CatalogModule] = [PokedexModule(settings, platform)]
+    if settings.digimon_enabled:
+        modules.append(DigimonModule(settings, platform))
+    return modules
 
 
 def create_app(

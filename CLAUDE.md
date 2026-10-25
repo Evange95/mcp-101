@@ -5,8 +5,9 @@ documentation; this file holds the rules to follow when changing code.
 
 ## What this is
 
-A Pokédex MCP server: FastAPI app serving the MCP Streamable HTTP transport at `/mcp`,
-backed by the public PokeAPI. `agent/` is a separate project (its own `pyproject.toml`,
+A creature-catalog MCP server: FastAPI app serving the MCP Streamable HTTP transport at
+`/mcp`, with a Pokédex catalog (public PokeAPI) and a Digimon catalog (digi-api.com, off
+unless `POKEDEX_DIGIMON_ENABLED=true`). `agent/` is a separate project (its own `pyproject.toml`,
 `uv.lock`, README) with a Claude Agent SDK demo agent that talks to this server over MCP.
 Its checks are run from `agent/`: `uv run pytest`, `uv run ruff check .`,
 `uv run ruff format --check .`, `uv run mypy` (strict, tests included and fully annotated).
@@ -33,7 +34,7 @@ Before saying a task is done: tests, ruff (lint + format) and mypy (strict) all 
 
 Two levels, enforced by `tests/unit/test_architecture.py`:
 
-- `catalogs/<name>/`: one bounded context per data source (today: `pokedex`). Catalogs
+- `catalogs/<name>/`: one bounded context per data source (today: `pokedex`, `digimon`). Catalogs
   **never import each other**. When two need the same thing, it goes in `platform/`
   (only if it has no domain logic) or is duplicated on purpose. A shared "Monster"
   model is not the answer.
@@ -60,6 +61,17 @@ Inside each catalog (paths below are relative to `catalogs/pokedex/`), hexagonal
   readiness_checks, running) and `build_mcp_server`, which builds **one** MCP server
   (`monsterdex`) at `/mcp` for every module. `main.build_modules` lists the modules.
   Every catalog has a `module.py` implementing it.
+- A new catalog ships **behind a feature flag, off by default** (`POKEDEX_<NAME>_ENABLED`,
+  checked in `main.build_modules`), so enabling it is a config change, not a deploy.
+- `catalogs/digimon/` mirrors `catalogs/pokedex/` file for file (domain, application,
+  `adapters/outbound/{digiapi,cache.py,retry.py,probes.py,telemetry}`, `adapters/inbound/mcp`,
+  `module.py`). Its errors, probes and `digimon.*` telemetry are duplicated on purpose;
+  never import Pokédex code from it or vice versa. digi-api quirks the adapter relies on:
+  unknown Digimon = HTTP 400 with "not found" in `message`; names keep spaces (keys are
+  lowercased and whitespace-collapsed, never dashed); empty pages omit `content`; unknown
+  paths return HTML with 200. The same rule as the Pokédex applies to its port: a new
+  `DigimonRepository` method goes in every implementation, `tests/digimon/fakes.py` and
+  its `REPOSITORY_OPERATIONS`.
 - `platform/upstream/`: service access tokens and `BearerAuth` (see "Upstream
   authentication rules").
 - `platform/` also holds the process lifecycle (`lifecycle.py`: starting → ready → draining → stopping),
@@ -83,6 +95,10 @@ Inside each catalog (paths below are relative to `catalogs/pokedex/`), hexagonal
   `Authorization` header by hand in an adapter.
 - Keep tokens as `SecretStr` and never log them, put them in spans, metrics, exception
   messages or test assertion messages. Probes and errors name the upstream only.
+- A token is optional per catalog: build the provider from settings in `module.py`
+  (`<name>_token_file` preferred, `<name>_token` for local runs, both = validation error)
+  and pass `auth=None` when neither is set. Add the `<upstream>_token` readiness check only
+  when a provider exists (see `DigimonModule`).
 - In the catalog adapter: catch `TokenUnavailable`, and map HTTP 401/403 to the catalog's
   non-retryable "unavailable" error. `BearerAuth` already retries once when a rotated
   token is available, so the decorator must not retry auth failures.
@@ -101,8 +117,9 @@ Inside each catalog (paths below are relative to `catalogs/pokedex/`), hexagonal
   with `Field(description=...)`, a structured output model, and the read-only
   annotations. Domain errors become `ToolError`, never protocol errors.
 - Adding, renaming or removing a tool: update the README `## Tools` table
-  (`tests/integration/test_tools_documented.py` enforces it), the agent allowlist
-  (`agent/pokedex_agent/config.py`), its policy rules and eval cases.
+  (`tests/integration/test_tools_documented.py` enforces it, with every feature flag on:
+  add a new catalog's flag there), the agent allowlist (`agent/pokedex_agent/config.py`,
+  one tuple per catalog), its policy rules and eval cases.
 
 ## Observability rules (domain probes)
 
@@ -139,11 +156,15 @@ for the full catalogue of spans, metrics and logs.
 - `pytest` + `anyio` (`pytestmark = pytest.mark.anyio`), asyncio backend.
 - Use the hand-written doubles in `tests/fakes.py` (`FakePokedexRepository` with
   `fail_next`/`calls`, `RecordingPokedexProbe`, `RecordingAdapterProbe`) and builders in
-  `tests/builders.py` rather than mocks (`monkeypatch` only at process edges, e.g.
+  `tests/builders.py` rather than mocks. Other catalogs keep theirs in `tests/<name>/`
+  (`tests/digimon/fakes.py`, `builders.py`) and their tests in `tests/unit/<name>/` and
+  `tests/integration/<name>/` (`monkeypatch` only at process edges, e.g.
   `uvicorn.run`).
-- PokeAPI is mocked with `respx` using recorded payloads in `tests/data/pokeapi/`.
+- Upstreams are mocked with `respx` using recorded payloads in `tests/data/<source>/`
+  (`load_json(name, "digiapi")`). Each upstream has a `-m live` contract test in `tests/live/`.
 - Assert observability through the recording probes in unit tests. Test the OTel
-  translation with the SDK in-memory exporters (`tests/unit/adapters/telemetry/`). Only
+  translation with the SDK in-memory exporters (the `otel` fixture in `tests/conftest.py`,
+  helper `tests/otel.py`). Only
   `tests/integration/test_telemetry.py` installs global providers (module-scoped fixture).
 - Test names describe behavior: `test_<what happens>_<when>`.
 
