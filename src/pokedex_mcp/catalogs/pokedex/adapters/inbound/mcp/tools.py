@@ -4,9 +4,7 @@ from collections.abc import Awaitable, Callable, Generator
 from contextlib import contextmanager
 from typing import Annotated
 
-from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from pokedex_mcp.catalogs.pokedex.adapters.inbound.mcp.schemas import (
@@ -28,8 +26,6 @@ INSTRUCTIONS = (
     "`pokemon_list(name=...)`; use `pokemon_get_species`, `pokemon_get_type`, "
     "`pokemon_get_evolution_chain` and `pokemon_get_move` for details."
 )
-
-READ_ONLY = ToolAnnotations(read_only_hint=True, idempotent_hint=True, open_world_hint=True)
 
 NameOrId = Annotated[
     str | int,
@@ -64,7 +60,8 @@ class PokedexTools:
         self._service = service
 
     def all(self) -> tuple[Callable[..., Awaitable[object]], ...]:
-        """The tools to register, in the order clients list them."""
+        """The tools to register, in the order clients list them. The platform registers
+        them read-only and checks each name starts with `PREFIX`."""
         return (
             self.pokemon_get,
             self.pokemon_get_species,
@@ -116,9 +113,3 @@ class PokedexTools:
         """Get a Pokémon move's type, damage class, power, accuracy, PP and effect."""
         with _domain_errors_as_tool_errors():
             return MoveOut.from_domain(await self._service.get_move(name_or_id))
-
-
-def register_tools(mcp: MCPServer, service: PokedexService) -> None:
-    for tool in PokedexTools(service).all():
-        assert tool.__name__.startswith(PREFIX), tool.__name__
-        mcp.add_tool(tool, name=tool.__name__, annotations=READ_ONLY)

@@ -60,10 +60,11 @@ Inside each catalog (paths below are relative to `catalogs/pokedex/`), hexagonal
   cache in front of it.
   When you add a method to `PokedexRepository`, add it to every implementation, the fake in
   `tests/fakes.py` and `REPOSITORY_OPERATIONS`.
-- `platform/catalog.py`: the `CatalogModule` contract (name, instructions, register_tools,
-  readiness_checks, running) and `build_mcp_server`, which builds **one** MCP server
-  (`monsterdex`) at `/mcp` for every module. `main.build_modules` lists the modules.
-  Every catalog has a `module.py` implementing it.
+- `platform/catalog.py`: the `CatalogModule` contract (name, tool_prefix, instructions,
+  tools, readiness_checks, running) and `build_mcp_server`, which builds **one** MCP server
+  (`monsterdex`) at `/mcp` for every module, registers their tools read-only and raises
+  `CatalogConflict` on prefix or name clashes. `main.build_modules` lists the modules.
+  Every catalog has a `module.py` implementing it; catalogs never touch `MCPServer`.
 - A new catalog ships **behind a feature flag, off by default** (`POKEDEX_<NAME>_ENABLED`,
   checked in `main.build_modules`), so enabling it is a config change, not a deploy.
 - `catalogs/digimon/` mirrors `catalogs/pokedex/` file for file (domain, application,
@@ -94,9 +95,15 @@ Inside each catalog (paths below are relative to `catalogs/pokedex/`), hexagonal
   `json_response=True` in `create_app`): several replicas sit behind one Service without
   session affinity. Do not add tools that need a session (progress notifications,
   sampling, elicitation, per-client state) without revisiting that.
-- `main.py` is the only composition root: all wiring (adapters, probes, telemetry) is there.
-- Configuration lives in `config.py` (`POKEDEX_*` env vars); OpenTelemetry exporters use
-  the standard `OTEL_*` vars instead of new settings.
+- `main.py` is the app's composition root (server, telemetry, which catalogs run); each
+  catalog's `module.py` is the composition root of that catalog (its adapters, decorators
+  and probes). Nothing else wires objects together.
+- Configuration is composed: `config.Settings` holds the server settings plus
+  `upstream: UpstreamSettings` (`platform/settings.py`: timeouts, cache, retries, reached
+  by catalogs through `Platform.upstream`) and one part per catalog
+  (`catalogs/<name>/settings.py`, its own `env_prefix`). Catalogs never import `config` or
+  `main` (`test_architecture.py`). Env var names stay `POKEDEX_*`. OpenTelemetry
+  exporters use the standard `OTEL_*` vars instead of new settings.
 
 ## Upstream authentication rules
 
@@ -124,7 +131,7 @@ Inside each catalog (paths below are relative to `catalogs/pokedex/`), hexagonal
   builder function: the file is meant to be read as the catalog's tool catalogue.
 - Every tool name starts with the catalog prefix (`pokemon_`, `digimon_`): one endpoint
   serves every catalog, and the prefix is how the model (and agent policies) tell them
-  apart. `register_tools` asserts it.
+  apart. The platform checks it when it registers the module's `tools()`.
 - Every tool needs a docstring (it is the description the model sees), typed parameters
   with `Field(description=...)`, a structured output model, and the read-only
   annotations. Domain errors become `ToolError`, never protocol errors.

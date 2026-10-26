@@ -14,6 +14,7 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import SpanContext
 
+from pokedex_mcp.catalogs.pokedex.settings import PokedexSettings
 from pokedex_mcp.config import Settings
 from pokedex_mcp.main import create_app
 from pokedex_mcp.platform.telemetry.sdk import Telemetry
@@ -40,7 +41,7 @@ def telemetry() -> Iterator[Telemetry]:
 def http(telemetry: Telemetry) -> Iterator[TestClient]:
     SPANS.clear()
     LOGS.clear()
-    app = create_app(Settings(pokeapi_base_url=BASE_URL), telemetry)
+    app = create_app(Settings(pokedex=PokedexSettings(pokeapi_base_url=BASE_URL)), telemetry)
     with TestClient(app, base_url="http://localhost:8000") as client:
         yield client
 

@@ -1,25 +1,24 @@
-"""Runtime configuration, read from `POKEDEX_*` environment variables."""
+"""The app's configuration, read from `POKEDEX_*` environment variables.
 
-from pathlib import Path
-from typing import Annotated, Literal, Self
+Composed of parts owned by whoever uses them: the server settings below, the upstream
+settings every catalog shares (`platform/settings.py`), and each catalog's own settings
+(`catalogs/<name>/settings.py`). Catalogs never import this module: `main.py` hands each
+one its own part.
+"""
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from typing import Annotated, Literal
+
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+from pokedex_mcp.catalogs.digimon.settings import DigimonSettings
+from pokedex_mcp.catalogs.pokedex.settings import PokedexSettings
+from pokedex_mcp.platform.settings import UpstreamSettings
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="POKEDEX_", frozen=True)
 
-    pokeapi_base_url: str = "https://pokeapi.co/api/v2"
-    # Read/write timeout of one upstream request; connecting has its own, shorter one.
-    http_timeout_seconds: float = Field(default=5.0, gt=0)
-    http_connect_timeout_seconds: float = Field(default=2.0, gt=0)
-    # Catalog data is static reference data: a day is safe, and the name indexes are big.
-    cache_ttl_seconds: float = Field(default=86400.0, gt=0)
-    cache_max_entries: int = Field(default=512, ge=1)
-    retry_attempts: int = Field(default=3, ge=1)
-    # No retry starts, and no backoff is slept, past this many seconds into a call.
-    retry_budget_seconds: float = Field(default=8.0, gt=0)
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
     allowed_hosts: Annotated[list[str], NoDecode] = Field(default_factory=list)
@@ -31,19 +30,11 @@ class Settings(BaseSettings):
     # flush) must stay below the pod's terminationGracePeriodSeconds (30 by default).
     shutdown_drain_seconds: float = Field(default=5.0, ge=0)
     shutdown_timeout_seconds: int = Field(default=20, gt=0)
-    # Digimon catalog (digi-api.com), off by default. It shares the HTTP timeout, cache and
-    # retry settings above. A service token is sent only when one is configured: the file
-    # (a mounted Kubernetes Secret, re-read on rotation) or, for local runs, the value.
-    digimon_enabled: bool = False
-    digimon_base_url: str = "https://digi-api.com/api/v1"
-    digimon_token_file: Path | None = None
-    digimon_token: SecretStr | None = None
 
-    @model_validator(mode="after")
-    def _one_digimon_token_source(self) -> Self:
-        if self.digimon_token_file is not None and self.digimon_token is not None:
-            raise ValueError("set POKEDEX_DIGIMON_TOKEN_FILE or POKEDEX_DIGIMON_TOKEN, not both")
-        return self
+    # Each part reads its own variables (same POKEDEX_* names as when everything was flat).
+    upstream: UpstreamSettings = Field(default_factory=UpstreamSettings)
+    pokedex: PokedexSettings = Field(default_factory=PokedexSettings)
+    digimon: DigimonSettings = Field(default_factory=DigimonSettings)
 
     @field_validator("allowed_hosts", mode="before")
     @classmethod

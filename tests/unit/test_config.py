@@ -7,27 +7,30 @@ from pokedex_mcp.config import Settings
 def test_defaults():
     settings = Settings()
 
-    assert settings.pokeapi_base_url == "https://pokeapi.co/api/v2"
-    assert (settings.http_timeout_seconds, settings.http_connect_timeout_seconds) == (5, 2)
-    assert settings.cache_ttl_seconds == 86400
-    assert settings.retry_budget_seconds == 8
-    assert settings.cache_max_entries == 512
-    assert settings.retry_attempts == 3
+    upstream = settings.upstream
+    assert settings.pokedex.pokeapi_base_url == "https://pokeapi.co/api/v2"
+    assert (upstream.http_timeout_seconds, upstream.http_connect_timeout_seconds) == (5, 2)
+    assert upstream.cache_ttl_seconds == 86400
+    assert upstream.retry_budget_seconds == 8
+    assert upstream.cache_max_entries == 512
+    assert upstream.retry_attempts == 3
     assert (settings.host, settings.port) == ("127.0.0.1", 8000)
     assert settings.allowed_hosts == []
-    assert settings.digimon_enabled is False
-    assert settings.digimon_base_url == "https://digi-api.com/api/v1"
-    assert (settings.digimon_token_file, settings.digimon_token) == (None, None)
+    assert settings.digimon.enabled is False
+    assert settings.digimon.base_url == "https://digi-api.com/api/v1"
+    assert (settings.digimon.token_file, settings.digimon.token) == (None, None)
 
 
 def test_reads_prefixed_environment_variables(monkeypatch):
     monkeypatch.setenv("POKEDEX_CACHE_TTL_SECONDS", "60")
+    monkeypatch.setenv("POKEDEX_POKEAPI_BASE_URL", "http://pokeapi.local/api/v2")
     monkeypatch.setenv("POKEDEX_PORT", "9000")
     monkeypatch.setenv("POKEDEX_ALLOWED_HOSTS", "pokedex.example:*, api.example:8000")
 
     settings = Settings()
 
-    assert settings.cache_ttl_seconds == 60
+    assert settings.upstream.cache_ttl_seconds == 60  # each part reads the same names as before
+    assert settings.pokedex.pokeapi_base_url == "http://pokeapi.local/api/v2"
     assert settings.port == 9000
     assert settings.allowed_hosts == ["pokedex.example:*", "api.example:8000"]
 
@@ -61,8 +64,8 @@ def test_reads_the_digimon_settings(monkeypatch):
 
     settings = Settings()
 
-    assert settings.digimon_enabled is True
-    assert str(settings.digimon_token_file) == "/var/run/secrets/digimon/token"
+    assert settings.digimon.enabled is True
+    assert str(settings.digimon.token_file) == "/var/run/secrets/digimon/token"
 
 
 def test_the_digimon_token_is_secret(monkeypatch):
@@ -70,8 +73,8 @@ def test_the_digimon_token_is_secret(monkeypatch):
 
     settings = Settings()
 
-    assert settings.digimon_token is not None
-    assert settings.digimon_token.get_secret_value() == "s3cret"
+    assert settings.digimon.token is not None
+    assert settings.digimon.token.get_secret_value() == "s3cret"
     assert "s3cret" not in repr(settings)
 
 

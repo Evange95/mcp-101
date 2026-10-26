@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from mcp import Client
 
+from pokedex_mcp.catalogs.digimon.settings import DigimonSettings
 from pokedex_mcp.config import Settings
 from pokedex_mcp.main import build_modules
 from pokedex_mcp.platform.catalog import Platform, build_mcp_server
@@ -23,7 +24,9 @@ def documented_tools() -> set[str]:
 
 async def test_readme_documents_every_exposed_tool_and_nothing_else():
     # Every catalog on, feature flags included: the README documents all of them.
-    mcp = build_mcp_server(build_modules(Settings(digimon_enabled=True), Platform()))
+    mcp = build_mcp_server(
+        build_modules(Settings(digimon=DigimonSettings(enabled=True)), Platform())
+    )
     async with Client(mcp) as client:
         exposed = {tool.name for tool in (await client.list_tools()).tools}
 

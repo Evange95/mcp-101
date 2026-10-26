@@ -65,3 +65,11 @@ def test_domain_imports_only_the_standard_library_and_itself(catalog):
         if name.split(".")[0] not in sys.stdlib_module_names and not name.startswith(own_domain)
     )
     assert third_party == []
+
+
+@pytest.mark.parametrize("catalog", CATALOGS)
+def test_catalogs_get_their_settings_not_the_apps_configuration(catalog):
+    """A catalog owns `settings.py` and receives shared settings through `Platform`, so
+    adding a catalog never means editing a file every catalog depends on."""
+    forbidden = (f"{ROOT}.config", f"{ROOT}.main")
+    assert violations(PACKAGE / "catalogs" / catalog, forbidden) == []

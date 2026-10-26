@@ -5,9 +5,10 @@ from mcp import Client
 from mcp.server import MCPServer
 from mcp.types import CallToolResult, TextContent
 
-from pokedex_mcp.catalogs.pokedex.adapters.inbound.mcp.tools import register_tools
+from pokedex_mcp.catalogs.pokedex.adapters.inbound.mcp.tools import PREFIX, PokedexTools
 from pokedex_mcp.catalogs.pokedex.application.use_cases import PokedexService
 from pokedex_mcp.catalogs.pokedex.domain.errors import PokedexUnavailable
+from pokedex_mcp.platform.catalog import add_catalog_tools
 from tests.fakes import FakePokedexRepository, full_repository
 
 pytestmark = pytest.mark.anyio
@@ -21,7 +22,7 @@ def repository() -> FakePokedexRepository:
 @pytest.fixture
 async def client(repository: FakePokedexRepository) -> AsyncIterator[Client]:
     mcp = MCPServer(name="test")
-    register_tools(mcp, PokedexService(repository))
+    add_catalog_tools(mcp, PREFIX, PokedexTools(PokedexService(repository)).all())
     async with Client(mcp) as mcp_client:
         yield mcp_client
 

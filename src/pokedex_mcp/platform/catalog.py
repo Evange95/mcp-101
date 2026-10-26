@@ -6,17 +6,19 @@ puts every module behind one MCP endpoint, so an agent needs a single connection
 tool name prefix (`pokemon_`, `digimon_`, ...) tells the model which catalog a tool is for.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 import httpx
 from mcp.server import MCPServer
+from mcp.types import ToolAnnotations
 
 from pokedex_mcp.platform.health import ReadinessCheck
 from pokedex_mcp.platform.resilience.cache import CacheProbe
 from pokedex_mcp.platform.resilience.retry import RetryProbe
+from pokedex_mcp.platform.settings import UpstreamSettings
 from pokedex_mcp.platform.telemetry.log import LoggingTokenProbe
 from pokedex_mcp.platform.telemetry.lookups import (
     FanOutLookupRecorder,
@@ -41,6 +43,8 @@ from pokedex_mcp.platform.telemetry.sdk import Telemetry
 from pokedex_mcp.platform.upstream.auth import AccessTokenProvider, BearerAuth, TokenProbe
 
 SERVER_NAME = "monsterdex"
+# Sent to every upstream, so their operators can tell who is calling.
+USER_AGENT = "monsterdex-mcp/0.1"
 INTRODUCTION = "Creature catalogs. Every tool name starts with its catalog's prefix:"
 
 
@@ -49,24 +53,27 @@ class Platform:
     """What the platform offers a catalog while it is being built."""
 
     telemetry: Telemetry | None = None
+    upstream: UpstreamSettings = field(default_factory=UpstreamSettings)
 
     def http_client(
         self,
         *,
         base_url: str,
-        timeout: float,
-        connect_timeout: float | None = None,
-        headers: Mapping[str, str],
+        headers: Mapping[str, str] | None = None,
         auth: httpx.Auth | None = None,
     ) -> httpx.AsyncClient:
-        """An HTTP client traced and metered like every other outbound call.
+        """An HTTP client with the shared timeouts and User-Agent, traced and metered like
+        every other outbound call.
 
         Pass `auth=self.bearer_auth(tokens)` for an upstream that needs a service token.
         """
+        timeouts = httpx.Timeout(
+            self.upstream.http_timeout_seconds, connect=self.upstream.http_connect_timeout_seconds
+        )
         client = httpx.AsyncClient(
             base_url=base_url,
-            timeout=httpx.Timeout(timeout, connect=connect_timeout or timeout),
-            headers=dict(headers),
+            timeout=timeouts,
+            headers={"User-Agent": USER_AGENT, **(headers or {})},
             auth=auth,
         )
         if self.telemetry is not None:
@@ -119,6 +126,13 @@ class Platform:
         return BearerAuth(tokens, probe=self.token_probe())
 
 
+type Tool = Callable[..., Awaitable[object]]
+
+# Every tool is read-only: catalogs only answer questions about reference data. A tool that
+# changes something would need its own annotations, and a change to this contract.
+READ_ONLY = ToolAnnotations(read_only_hint=True, idempotent_hint=True, open_world_hint=True)
+
+
 class CatalogModule(Protocol):
     @property
     def name(self) -> str:
@@ -126,11 +140,19 @@ class CatalogModule(Protocol):
         ...
 
     @property
+    def tool_prefix(self) -> str:
+        """What every tool name of this catalog starts with, e.g. "pokemon_"."""
+        ...
+
+    @property
     def instructions(self) -> str:
         """One paragraph for the MCP `instructions`: what the catalog holds, its tool prefix."""
         ...
 
-    def register_tools(self, mcp: MCPServer) -> None: ...
+    def tools(self) -> Sequence[Tool]:
+        """The catalog's tools, in the order clients list them; each is named after its
+        function (`pokemon_get`) and documented by its docstring."""
+        ...
 
     def readiness_checks(self) -> Mapping[str, ReadinessCheck]: ...
 
@@ -139,11 +161,36 @@ class CatalogModule(Protocol):
         ...
 
 
+class CatalogConflict(ValueError):
+    """Two catalogs (or two tools) would be indistinguishable on the shared endpoint."""
+
+
+def add_catalog_tools(mcp: MCPServer, prefix: str, tools: Sequence[Tool]) -> None:
+    """Register one catalog's tools, read-only, after checking every name has its prefix."""
+    if not prefix.endswith("_"):
+        raise CatalogConflict(f"tool prefix {prefix!r} must end with '_'")
+    for tool in tools:
+        if not tool.__name__.startswith(prefix):
+            raise CatalogConflict(f"tool {tool.__name__!r} does not start with {prefix!r}")
+        mcp.add_tool(tool, name=tool.__name__, annotations=READ_ONLY)
+
+
 def build_mcp_server(modules: Sequence[CatalogModule]) -> MCPServer:
+    """One MCP server for every catalog. Fails at startup if two catalogs share a name or a
+    tool prefix, or one prefix starts another: a model could no longer tell them apart."""
+    names = [module.name for module in modules]
+    if len(set(names)) != len(names):
+        raise CatalogConflict(f"duplicate catalog names: {names}")
+    prefixes = [module.tool_prefix for module in modules]
+    for prefix in prefixes:
+        if clash := [p for p in prefixes if p != prefix and p.startswith(prefix)]:
+            raise CatalogConflict(f"tool prefix {prefix!r} is a prefix of {clash}")
+    if len(set(prefixes)) != len(prefixes):
+        raise CatalogConflict(f"duplicate tool prefixes: {prefixes}")
     instructions = "\n".join([INTRODUCTION, *(f"- {m.instructions}" for m in modules)])
     mcp = MCPServer(name=SERVER_NAME, instructions=instructions)
     for module in modules:
-        module.register_tools(mcp)
+        add_catalog_tools(mcp, module.tool_prefix, module.tools())
     return mcp
 
 

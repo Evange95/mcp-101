@@ -4,9 +4,7 @@ from collections.abc import Awaitable, Callable, Generator
 from contextlib import contextmanager
 from typing import Annotated
 
-from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from pokedex_mcp.catalogs.digimon.adapters.inbound.mcp.schemas import (
@@ -26,8 +24,6 @@ INSTRUCTIONS = (
     "digi-api uses the Japanese names: 'Omegamon' (dub: Omnimon); levels too, so "
     "'Ultimate' is the dub's Mega and the dub's Ultimate is 'Perfect'."
 )
-
-READ_ONLY = ToolAnnotations(read_only_hint=True, idempotent_hint=True, open_world_hint=True)
 
 NameOrId = Annotated[
     str | int,
@@ -65,7 +61,8 @@ class DigimonTools:
         self._service = service
 
     def all(self) -> tuple[Callable[..., Awaitable[object]], ...]:
-        """The tools to register, in the order clients list them."""
+        """The tools to register, in the order clients list them. The platform registers
+        them read-only and checks each name starts with `PREFIX`."""
         return (self.digimon_get, self.digimon_list, self.digimon_get_digivolutions)
 
     async def digimon_get(self, name_or_id: NameOrId) -> DigimonOut:
@@ -113,9 +110,3 @@ class DigimonTools:
         with _domain_errors_as_tool_errors():
             digimon = await self._service.get_digivolutions(name_or_id)
             return DigivolutionsOut.from_domain(digimon, limit=limit)
-
-
-def register_tools(mcp: MCPServer, service: DigimonService) -> None:
-    for tool in DigimonTools(service).all():
-        assert tool.__name__.startswith(PREFIX), tool.__name__
-        mcp.add_tool(tool, name=tool.__name__, annotations=READ_ONLY)

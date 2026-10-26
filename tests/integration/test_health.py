@@ -5,6 +5,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from pokedex_mcp.catalogs.pokedex.settings import PokedexSettings
 from pokedex_mcp.config import Settings
 from pokedex_mcp.main import create_app
 from pokedex_mcp.platform.health import ReadinessCheck, build_health_router
@@ -19,7 +20,9 @@ def lifecycle() -> Lifecycle:
 
 @pytest.fixture
 def app(lifecycle: Lifecycle) -> FastAPI:
-    return create_app(Settings(pokeapi_base_url=BASE_URL), lifecycle=lifecycle)
+    return create_app(
+        Settings(pokedex=PokedexSettings(pokeapi_base_url=BASE_URL)), lifecycle=lifecycle
+    )
 
 
 @pytest.fixture

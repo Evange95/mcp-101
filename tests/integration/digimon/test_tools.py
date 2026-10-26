@@ -9,12 +9,13 @@ from mcp import Client
 from mcp.server import MCPServer
 from pydantic import SecretStr
 
-from pokedex_mcp.catalogs.digimon.adapters.inbound.mcp.tools import register_tools
+from pokedex_mcp.catalogs.digimon.adapters.inbound.mcp.tools import PREFIX, DigimonTools
 from pokedex_mcp.catalogs.digimon.application.use_cases import DigimonService
 from pokedex_mcp.catalogs.digimon.domain.errors import DigimonUnavailable
+from pokedex_mcp.catalogs.digimon.settings import DigimonSettings
 from pokedex_mcp.config import Settings
 from pokedex_mcp.main import build_modules, create_app
-from pokedex_mcp.platform.catalog import Platform, build_mcp_server
+from pokedex_mcp.platform.catalog import Platform, add_catalog_tools, build_mcp_server
 from tests.digimon.fakes import FakeDigimonRepository, full_repository
 from tests.integration.test_mcp_server import text_of
 
@@ -29,7 +30,7 @@ def repository() -> FakeDigimonRepository:
 @pytest.fixture
 async def client(repository: FakeDigimonRepository) -> AsyncIterator[Client]:
     mcp = MCPServer(name="test")
-    register_tools(mcp, DigimonService(repository))
+    add_catalog_tools(mcp, PREFIX, DigimonTools(DigimonService(repository)).all())
     async with Client(mcp) as mcp_client:
         yield mcp_client
 
@@ -133,7 +134,9 @@ def test_the_catalog_is_off_by_default():
 
 
 async def test_enabled_it_shares_the_one_endpoint_and_its_instructions():
-    mcp = build_mcp_server(build_modules(Settings(digimon_enabled=True), Platform()))
+    mcp = build_mcp_server(
+        build_modules(Settings(digimon=DigimonSettings(enabled=True)), Platform())
+    )
 
     async with Client(mcp) as mcp_client:
         names = {tool.name for tool in (await mcp_client.list_tools()).tools}
@@ -146,8 +149,8 @@ async def test_enabled_it_shares_the_one_endpoint_and_its_instructions():
 
 def test_a_missing_token_file_degrades_digimon_without_taking_the_pokedex_down(tmp_path: Path):
     token_file = tmp_path / "token"
-    without = Settings(digimon_enabled=True)
-    with_file = Settings(digimon_enabled=True, digimon_token_file=token_file)
+    without = Settings(digimon=DigimonSettings(enabled=True))
+    with_file = Settings(digimon=DigimonSettings(enabled=True, token_file=token_file))
 
     with TestClient(create_app(without)) as app:
         assert app.get("/readyz").json()["checks"] == {}
@@ -165,7 +168,7 @@ def test_a_missing_token_file_degrades_digimon_without_taking_the_pokedex_down(t
 
 
 def test_a_static_token_is_ready_when_not_blank():
-    settings = Settings(digimon_enabled=True, digimon_token=SecretStr("dev-token"))
+    settings = Settings(digimon=DigimonSettings(enabled=True, token=SecretStr("dev-token")))
 
     with TestClient(create_app(settings)) as app:
         assert app.get("/readyz").json()["checks"]["digimon.digiapi_token"] == "ok"

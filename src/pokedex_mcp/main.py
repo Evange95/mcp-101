@@ -28,9 +28,9 @@ LOCAL_ORIGINS = ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
 
 def build_modules(settings: Settings, platform: Platform) -> list[CatalogModule]:
     """The catalogs this deployment serves. Add a catalog here (behind a setting if optional)."""
-    modules: list[CatalogModule] = [PokedexModule(settings, platform)]
-    if settings.digimon_enabled:
-        modules.append(DigimonModule(settings, platform))
+    modules: list[CatalogModule] = [PokedexModule(settings.pokedex, platform)]
+    if settings.digimon.enabled:
+        modules.append(DigimonModule(settings.digimon, platform))
     return modules
 
 
@@ -43,7 +43,7 @@ def create_app(
     is shared with the server that drives the graceful shutdown (see `run`)."""
     settings = settings or Settings()
     lifecycle = lifecycle or Lifecycle(LoggingLifecycleProbe())
-    modules = build_modules(settings, Platform(telemetry))
+    modules = build_modules(settings, Platform(telemetry, settings.upstream))
     # A fresh MCPServer per app: its session manager can only be run once.
     mcp = build_mcp_server(modules)
     mcp_app = mcp.streamable_http_app(

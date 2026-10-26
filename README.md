@@ -124,10 +124,11 @@ src/pokedex_mcp/
         probes.py             PokedexProbe / LookupProbe: what the core announces (observability port)
         use_cases.py          PokedexService: key normalization, validation, orchestration
       adapters/
-        inbound/mcp/          tools.py (PokedexTools: one method per `pokemon_*` tool,
-                              register_tools) and output schemas (schemas.py)
-      module.py             PokedexModule: the catalog's CatalogModule (builds its adapters,
-                              owns its HTTP client, registers its tools)
+        inbound/mcp/          tools.py (PokedexTools: one method per `pokemon_*` tool, PREFIX,
+                              INSTRUCTIONS) and output schemas (schemas.py)
+      settings.py             PokedexSettings: the catalog's own POKEDEX_POKEAPI_* settings
+      module.py               PokedexModule: the catalog's CatalogModule (builds its adapters,
+                              owns its HTTP client, lists its tools)
         outbound/
           pokeapi/            PokeApiRepository: httpx client, DTOs, DTO → domain mappers
           retry.py            RetryingPokedexRepository: one line per method over RetryPolicy;
@@ -143,13 +144,17 @@ src/pokedex_mcp/
       adapters/inbound/mcp/   DigimonTools (`digimon_*`) and output schemas
       adapters/outbound/      digiapi/ (client, DTOs, mappers), cache.py, retry.py, probes.py,
                               telemetry/probes.py (RecordedDigimonProbe, build_probes)
+      settings.py             DigimonSettings: POKEDEX_DIGIMON_* (flag, URL, token)
       module.py               DigimonModule: token provider, HTTP client, readiness checks
   platform/                   infrastructure shared by every catalog; imports no catalog
     lifecycle.py              Lifecycle phases (starting → ready → draining → stopping)
     health.py                 /livez, /readyz, /health
     server.py                 GracefulServer: drain on SIGTERM + graceful shutdown
-    catalog.py                CatalogModule contract, Platform (instrumented HTTP clients),
-                              build_mcp_server: one MCP server for every module
+    catalog.py                CatalogModule contract, Platform (instrumented HTTP clients,
+                              probes, upstream settings), build_mcp_server: one MCP server
+                              for every module; registers their tools read-only and rejects
+                              prefix clashes (CatalogConflict)
+    settings.py               UpstreamSettings: timeouts, cache, retries shared by catalogs
     telemetry/sdk.py          Telemetry: OTel providers, OTLP exporters, instrumentation
     telemetry/log.py          configure_logging(), LoggingLifecycleProbe, LoggingTokenProbe
     telemetry/otel.py         OtelTokenProbe, FanOutTokenProbe (platform-level OTel probes)
@@ -161,7 +166,7 @@ src/pokedex_mcp/
     resilience/cache.py       TtlLruCache + CacheProbe: TTL + LRU cache for any async loader
     resilience/retry.py       RetryPolicy + RetryProbe: backoff + jitter, caller-supplied
                               `retry_if` and `reason` (no domain error types)
-  config.py                   Settings from POKEDEX_* env vars
+  config.py                   Settings: server settings + upstream + each catalog's own part
   main.py                     composition root
 ```
 
@@ -205,14 +210,25 @@ decorators keep the port's exact method signatures, so they stay type-checked ag
 | Member | What the module provides |
 |---|---|
 | `name` | short id (`pokedex`), used to namespace readiness checks |
+| `tool_prefix` | what every tool name of the catalog starts with (`pokemon_`) |
 | `instructions` | one paragraph for the MCP `instructions`: what it holds and its tool prefix |
-| `register_tools(mcp)` | adds its tools to the shared MCP server |
+| `tools()` | its tool functions, in listing order; each is named after the function and described by its docstring |
 | `readiness_checks()` | local `ReadinessCheck`s for `/readyz`; `gating=False` for one that would fail on every replica at once (see Health checks) |
 | `running()` | async context manager holding its resources (HTTP clients) for the app's lifetime |
 
-The platform passes each module a `Platform`, which hands out HTTP clients that are
-already traced and metered (`platform.http_client(...)`). `create_app` then builds one
-`MCPServer` named `monsterdex` with every module's tools and instructions. The lifespan
+The platform passes each module a `Platform`, which hands out HTTP clients with the shared
+timeouts and User-Agent, already traced and metered (`platform.http_client(...)`), the
+probes, and the shared `UpstreamSettings` (cache, retries). A module gets its *own*
+settings (`PokedexSettings`, `DigimonSettings`) from `build_modules`; catalogs never
+import the app's `config.py` (`test_architecture.py` enforces it), so adding a catalog
+does not touch a file every catalog depends on.
+
+`create_app` then builds one `MCPServer` named `monsterdex`. The platform, not the
+catalog, registers the tools: it applies the read-only annotations and checks the
+contract, failing at startup with `CatalogConflict` when a tool does not start with its
+module's prefix, a prefix does not end with `_`, two modules share a name, or one prefix
+starts another (`pokemon_` and `pokemon_get_`): a model could no longer tell them apart.
+These are real checks, not `assert`s, so `python -O` keeps them. The lifespan
 opens every module's resources, then the MCP session manager, and only after that marks
 the pod ready. On shutdown it closes them in reverse order.
 
@@ -222,11 +238,13 @@ the pod ready. On shutdown it closes them in reverse order.
    and `adapters/`. Never import another catalog; share only through `platform/`.
 2. Write `adapters/inbound/mcp/tools.py`. Every tool is a method named `<prefix>_<verb>`
    (e.g. `digimon_get`) with a docstring, a `PREFIX` and an `INSTRUCTIONS` paragraph.
-3. Write `module.py` implementing `CatalogModule` (with its `TYPE_CHECKING` assertion), and
-   add it to `build_modules` in `main.py`.
-4. Add a `## Tools` table for the catalog in this README.
+3. Write `settings.py` (a `BaseSettings` with the catalog's own `env_prefix`, with an
+   `enabled` flag if it is optional) and add it as a field of `config.Settings`.
+4. Write `module.py` implementing `CatalogModule` (with its `TYPE_CHECKING` assertion), and
+   add it to `build_modules` in `main.py`, behind its flag.
+5. Add a `## Tools` table for the catalog in this README.
    `test_tools_documented.py` fails until you do.
-5. Allow its tools in the agent (`agent/pokedex_agent/config.py`) and, if needed, add
+6. Allow its tools in the agent (`agent/pokedex_agent/config.py`) and, if needed, add
    policy rules and eval cases.
 
 The Digimon catalog below was added exactly this way; read it as the worked example.

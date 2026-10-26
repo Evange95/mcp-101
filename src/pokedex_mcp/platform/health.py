@@ -1,7 +1,7 @@
 """Kubernetes-style probes.
 
-- `/livez`: the process is alive and its event loop answers. Never depends on PokeAPI or
-  on the lifecycle phase, so a slow upstream or a draining pod is never restarted.
+- `/livez`: the process is alive and its event loop answers. Never depends on an upstream
+  API or on the lifecycle phase, so a slow upstream or a draining pod is never restarted.
 - `/readyz`: this replica can take new traffic. 503 while starting, draining or stopping,
   or when a gating check fails. Upstream APIs are never checked: an upstream outage would
   take every replica out of rotation at once, while the MCP tools can still answer from

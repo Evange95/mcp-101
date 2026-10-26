@@ -6,6 +6,7 @@ import respx
 from fastapi.testclient import TestClient
 
 from pokedex_mcp import main
+from pokedex_mcp.catalogs.pokedex.settings import PokedexSettings
 from pokedex_mcp.config import Settings
 from pokedex_mcp.main import create_app
 from pokedex_mcp.platform.server import GracefulServer
@@ -27,7 +28,9 @@ INITIALIZE = {
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(pokeapi_base_url=BASE_URL, allowed_hosts=["pokedex.example:*"])
+    return Settings(
+        pokedex=PokedexSettings(pokeapi_base_url=BASE_URL), allowed_hosts=["pokedex.example:*"]
+    )
 
 
 @pytest.fixture
