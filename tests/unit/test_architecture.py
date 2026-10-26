@@ -73,3 +73,17 @@ def test_catalogs_get_their_settings_not_the_apps_configuration(catalog):
     adding a catalog never means editing a file every catalog depends on."""
     forbidden = (f"{ROOT}.config", f"{ROOT}.main")
     assert violations(PACKAGE / "catalogs" / catalog, forbidden) == []
+
+
+@pytest.mark.parametrize("catalog", CATALOGS)
+def test_the_application_layer_uses_no_framework_and_no_observability_library(catalog):
+    """Use cases speak to ports and probes only: no HTTP, MCP, validation or telemetry."""
+    forbidden = ("httpx", "mcp", "pydantic", "fastapi", "logging", "opentelemetry", "tenacity")
+    assert violations(PACKAGE / "catalogs" / catalog / "application", forbidden) == []
+
+
+@pytest.mark.parametrize("catalog", CATALOGS)
+def test_outbound_adapters_announce_through_probes_instead_of_logging_or_tracing(catalog):
+    """Repositories and decorators call probes; recording lives in the platform."""
+    outbound = PACKAGE / "catalogs" / catalog / "adapters" / "outbound"
+    assert violations(outbound, ("logging", "opentelemetry")) == []

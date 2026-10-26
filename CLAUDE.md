@@ -32,7 +32,8 @@ Before saying a task is done: tests, ruff (lint + format) and mypy (strict) all 
 
 ## Architecture rules
 
-Two levels, enforced by `tests/unit/test_architecture.py`:
+Two levels, enforced by `tests/unit/test_architecture.py` (every import rule in this
+section has a test there: add one when you add a rule):
 
 - `catalogs/<name>/`: one bounded context per data source (today: `pokedex`, `digimon`). Catalogs
   **never import each other**. When two need the same thing, it goes in `platform/`
