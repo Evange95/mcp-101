@@ -12,7 +12,6 @@ from pokedex_mcp.catalogs.pokedex.domain.models import (
     EvolutionChain,
     Move,
     Pokemon,
-    PokemonPage,
     PokemonSpecies,
     PokemonSummary,
     PokemonType,
@@ -76,13 +75,10 @@ class FakePokedexRepository:
         self._record("get_species", key)
         return _lookup(self._species, "Species", key)
 
-    async def list_pokemon(self, limit: int, offset: int) -> PokemonPage:
-        self._record("list_pokemon", limit, offset)
+    async def pokemon_index(self) -> tuple[PokemonSummary, ...]:
+        self._record("pokemon_index")
         ordered = sorted({p.id: p for p in self._pokemon.values()}.values(), key=lambda p: p.id)
-        items = tuple(
-            PokemonSummary(id=p.id, name=p.name) for p in ordered[offset : offset + limit]
-        )
-        return PokemonPage(total=len(ordered), limit=limit, offset=offset, items=items)
+        return tuple(PokemonSummary(id=p.id, name=p.name) for p in ordered)
 
     async def get_type(self, key: str) -> PokemonType:
         self._record("get_type", key)
@@ -104,6 +100,9 @@ class _RecordingLookupProbe:
 
     def query_normalized(self, key: str) -> None:
         self._events.append(f"{self._lookup}: normalized {key}")
+
+    def query_resolved(self, key: str) -> None:
+        self._events.append(f"{self._lookup}: resolved {key}")
 
     def found(self) -> None:
         self._events.append(f"{self._lookup}: found")
@@ -169,7 +168,7 @@ def full_repository() -> FakePokedexRepository:
 REPOSITORY_OPERATIONS: list[object] = [
     pytest.param(lambda r: r.get_pokemon("pikachu"), id="get_pokemon"),
     pytest.param(lambda r: r.get_species("pikachu"), id="get_species"),
-    pytest.param(lambda r: r.list_pokemon(20, 0), id="list_pokemon"),
+    pytest.param(lambda r: r.pokemon_index(), id="pokemon_index"),
     pytest.param(lambda r: r.get_type("electric"), id="get_type"),
     pytest.param(lambda r: r.get_evolution_chain(10), id="get_evolution_chain"),
     pytest.param(lambda r: r.get_move("thunderbolt"), id="get_move"),

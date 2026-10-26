@@ -20,6 +20,10 @@ class _FanOutLookupProbe:
         for probe in self._probes:
             probe.query_normalized(key)
 
+    def query_resolved(self, key: str) -> None:
+        for probe in self._probes:
+            probe.query_resolved(key)
+
     def found(self) -> None:
         for probe in self._probes:
             probe.found()

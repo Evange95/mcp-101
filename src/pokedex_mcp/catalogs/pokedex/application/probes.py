@@ -19,6 +19,11 @@ class LookupProbe(Protocol):
 
     def query_normalized(self, key: str) -> None: ...
 
+    def query_resolved(self, key: str) -> None:
+        """The normalized key did not exist, but unambiguously meant `key` ("deoxys" ->
+        "deoxys-normal"), which was looked up instead."""
+        ...
+
     def found(self) -> None: ...
 
     def not_found(self, error: NotFound) -> None: ...
@@ -36,6 +41,9 @@ class PokedexProbe(Protocol):
 
 class _NullLookupProbe:
     def query_normalized(self, key: str) -> None:
+        pass
+
+    def query_resolved(self, key: str) -> None:
         pass
 
     def found(self) -> None:

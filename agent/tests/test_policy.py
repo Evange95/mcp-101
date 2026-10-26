@@ -44,7 +44,7 @@ def test_trainer_is_denied_legendary_details(policy: Policy, pokemon: str | int)
 
 def test_rule_also_covers_the_evolution_chain_argument(policy: Policy) -> None:
     decision = policy.evaluate(
-        "trainer", "mcp__monsterdex__pokemon_get_evolution_chain", {"pokemon": "lugia"}
+        "trainer", "mcp__monsterdex__pokemon_get_evolution_chain", {"name_or_id": "lugia"}
     )
 
     assert decision.allowed is False

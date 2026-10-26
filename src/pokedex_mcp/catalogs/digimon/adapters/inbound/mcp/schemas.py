@@ -73,15 +73,23 @@ class DigivolutionsOut(BaseModel):
     levels: list[str]
     digivolves_from: list[DigivolutionOut]
     digivolves_to: list[DigivolutionOut]
+    # Each list holds at most `limit` entries; the totals say how many there are.
+    digivolves_from_total: int
+    digivolves_to_total: int
+    truncated: bool
 
     @classmethod
-    def from_domain(cls, digimon: Digimon) -> Self:
+    def from_domain(cls, digimon: Digimon, *, limit: int) -> Self:
+        prior, after = digimon.prior_evolutions, digimon.next_evolutions
         return cls(
             id=digimon.id,
             name=digimon.name,
             levels=list(digimon.levels),
-            digivolves_from=[DigivolutionOut.from_domain(d) for d in digimon.prior_evolutions],
-            digivolves_to=[DigivolutionOut.from_domain(d) for d in digimon.next_evolutions],
+            digivolves_from=[DigivolutionOut.from_domain(d) for d in prior[:limit]],
+            digivolves_to=[DigivolutionOut.from_domain(d) for d in after[:limit]],
+            digivolves_from_total=len(prior),
+            digivolves_to_total=len(after),
+            truncated=len(prior) > limit or len(after) > limit,
         )
 
 
@@ -94,6 +102,7 @@ class DigimonPageOut(BaseModel):
     total: int
     page: int
     page_size: int
+    has_more: bool  # ask for page + 1 to continue
     items: list[DigimonSummaryOut]
 
     @classmethod
@@ -102,5 +111,6 @@ class DigimonPageOut(BaseModel):
             total=page.total,
             page=page.page,
             page_size=page.page_size,
+            has_more=page.has_more,
             items=[DigimonSummaryOut(id=item.id, name=item.name) for item in page.items],
         )

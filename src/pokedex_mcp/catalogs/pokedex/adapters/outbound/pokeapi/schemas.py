@@ -52,6 +52,11 @@ class FlavorTextEntry(_DTO):
     language: NamedResource
 
 
+class VarietyDTO(_DTO):
+    is_default: bool
+    pokemon: NamedResource
+
+
 class SpeciesDTO(_DTO):
     id: int
     name: str
@@ -60,6 +65,7 @@ class SpeciesDTO(_DTO):
     is_mythical: bool
     flavor_text_entries: list[FlavorTextEntry]
     evolution_chain: ResourceRef | None
+    varieties: list[VarietyDTO] = []
 
 
 class PokemonListDTO(_DTO):
@@ -76,15 +82,45 @@ class DamageRelationsDTO(_DTO):
     no_damage_to: list[NamedResource]
 
 
+class TypePokemonDTO(_DTO):
+    pokemon: NamedResource
+
+
 class TypeDTO(_DTO):
     id: int
     name: str
     damage_relations: DamageRelationsDTO
+    pokemon: list[TypePokemonDTO] = []
+
+
+class EvolutionDetailDTO(_DTO):
+    """One way to evolve. PokeAPI has ~30 optional fields; these are the ones that matter
+    in the main-series games. Unknown ones are ignored, so new fields never break us."""
+
+    trigger: NamedResource
+    min_level: int | None = None
+    item: NamedResource | None = None
+    held_item: NamedResource | None = None
+    known_move: NamedResource | None = None
+    known_move_type: NamedResource | None = None
+    location: NamedResource | None = None
+    min_happiness: int | None = None
+    min_affection: int | None = None
+    min_beauty: int | None = None
+    time_of_day: str = ""
+    gender: int | None = None  # 1 female, 2 male
+    trade_species: NamedResource | None = None
+    party_species: NamedResource | None = None
+    party_type: NamedResource | None = None
+    needs_overworld_rain: bool = False
+    turn_upside_down: bool = False
+    relative_physical_stats: int | None = None  # 1: attack > defense, -1: <, 0: =
 
 
 class ChainLinkDTO(_DTO):
     species: NamedResource
     evolves_to: list[ChainLinkDTO]
+    evolution_details: list[EvolutionDetailDTO] = []
 
 
 class EvolutionChainDTO(_DTO):

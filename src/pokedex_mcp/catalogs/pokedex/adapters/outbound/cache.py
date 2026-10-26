@@ -8,8 +8,8 @@ from pokedex_mcp.catalogs.pokedex.domain.models import (
     EvolutionChain,
     Move,
     Pokemon,
-    PokemonPage,
     PokemonSpecies,
+    PokemonSummary,
     PokemonType,
 )
 from pokedex_mcp.platform.resilience.cache import CacheProbe, Clock, TtlLruCache
@@ -38,10 +38,8 @@ class CachedPokedexRepository:
     async def get_species(self, key: str) -> PokemonSpecies:
         return await self._cache.get_or_load(("species", key), lambda: self._inner.get_species(key))
 
-    async def list_pokemon(self, limit: int, offset: int) -> PokemonPage:
-        return await self._cache.get_or_load(
-            ("list", limit, offset), lambda: self._inner.list_pokemon(limit, offset)
-        )
+    async def pokemon_index(self) -> tuple[PokemonSummary, ...]:
+        return await self._cache.get_or_load(("index",), self._inner.pokemon_index)
 
     async def get_type(self, key: str) -> PokemonType:
         return await self._cache.get_or_load(("type", key), lambda: self._inner.get_type(key))

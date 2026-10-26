@@ -10,8 +10,8 @@ from pokedex_mcp.catalogs.pokedex.domain.models import (
     EvolutionChain,
     Move,
     Pokemon,
-    PokemonPage,
     PokemonSpecies,
+    PokemonSummary,
     PokemonType,
 )
 from pokedex_mcp.platform.resilience.retry import RetryPolicy, RetryProbe
@@ -47,8 +47,8 @@ class RetryingPokedexRepository:
     async def get_species(self, key: str) -> PokemonSpecies:
         return await self._policy.call(lambda: self._inner.get_species(key))
 
-    async def list_pokemon(self, limit: int, offset: int) -> PokemonPage:
-        return await self._policy.call(lambda: self._inner.list_pokemon(limit, offset))
+    async def pokemon_index(self) -> tuple[PokemonSummary, ...]:
+        return await self._policy.call(self._inner.pokemon_index)
 
     async def get_type(self, key: str) -> PokemonType:
         return await self._policy.call(lambda: self._inner.get_type(key))

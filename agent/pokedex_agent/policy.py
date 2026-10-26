@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, Any
 import yaml
 
 MCP_TOOL_PREFIX = "mcp__monsterdex__"
-# Tool arguments that carry a Pokémon name or id.
-POKEMON_ARGUMENTS = ("name_or_id", "pokemon")
+# The tool argument that carries a Pokémon name or id (every `pokemon_get*` tool uses it).
+POKEMON_ARGUMENTS = ("name_or_id",)
 
 
 def normalize_name(raw: str | int) -> str:

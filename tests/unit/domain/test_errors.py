@@ -19,7 +19,7 @@ def test_pokedex_unavailable_is_retryable_by_default():
 
     assert error.retryable is True
     assert error.reason == "timeout"
-    assert str(error) == "Pokédex service temporarily unavailable: timeout"
+    assert str(error) == "Pokédex data source unavailable: timeout"
     assert isinstance(error, PokedexError)
 
 

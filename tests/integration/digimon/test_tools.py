@@ -73,7 +73,19 @@ async def test_digimon_get_digivolutions_lists_both_directions(client):
             {"id": 34, "name": "Greymon", "condition": "with or without Gabumon"},
             {"id": 493, "name": "Agnimon", "condition": None},
         ],
+        "digivolves_from_total": 1,
+        "digivolves_to_total": 2,
+        "truncated": False,
     }
+
+
+async def test_digimon_get_digivolutions_cuts_long_lists_at_the_limit(client):
+    result = await client.call_tool("digimon_get_digivolutions", {"name_or_id": 1, "limit": 1})
+
+    assert result.structured_content is not None
+    assert [d["name"] for d in result.structured_content["digivolves_to"]] == ["Greymon"]
+    assert result.structured_content["digivolves_to_total"] == 2
+    assert result.structured_content["truncated"] is True
 
 
 async def test_digimon_list_filters_and_paginates(client):
@@ -83,6 +95,7 @@ async def test_digimon_list_filters_and_paginates(client):
         "total": 2,
         "page": 0,
         "page_size": 1,
+        "has_more": True,
         "items": [{"id": 34, "name": "Greymon"}],
     }
 
@@ -90,7 +103,12 @@ async def test_digimon_list_filters_and_paginates(client):
 @pytest.mark.parametrize(
     ("tool", "arguments", "message"),
     [
-        ("digimon_get", {"name_or_id": "wargreymon"}, "Digimon 'wargreymon' not found"),
+        (
+            "digimon_get",
+            {"name_or_id": "agumonn"},
+            "Did you mean: 'Agumon'? Search names with digimon_list(name=...).",
+        ),
+        ("digimon_list", {"level": "Champions"}, "unknown level 'Champions'"),
         ("digimon_get", {"name_or_id": "a/b"}, "must not contain"),
     ],
 )

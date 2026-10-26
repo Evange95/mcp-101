@@ -14,6 +14,8 @@ from pokedex_mcp.catalogs.pokedex.domain.models import (
     PokemonType,
 )
 
+MAX_TYPE_POKEMON = 50
+
 
 class StatOut(BaseModel):
     name: str
@@ -73,16 +75,18 @@ class PokemonSummaryOut(BaseModel):
 
 class PokemonPageOut(BaseModel):
     total: int
-    limit: int
-    offset: int
+    page: int
+    page_size: int
+    has_more: bool  # ask for page + 1 to continue
     items: list[PokemonSummaryOut]
 
     @classmethod
     def from_domain(cls, page: PokemonPage) -> Self:
         return cls(
             total=page.total,
-            limit=page.limit,
-            offset=page.offset,
+            page=page.page,
+            page_size=page.page_size,
+            has_more=page.has_more,
             items=[PokemonSummaryOut(id=item.id, name=item.name) for item in page.items],
         )
 
@@ -96,6 +100,9 @@ class TypeOut(BaseModel):
     half_damage_to: list[str]
     no_damage_from: list[str]
     no_damage_to: list[str]
+    # A type has up to ~150 Pokémon: the first ones only, to keep the answer small.
+    pokemon: list[str]
+    pokemon_total: int
 
     @classmethod
     def from_domain(cls, pokemon_type: PokemonType) -> Self:
@@ -108,23 +115,27 @@ class TypeOut(BaseModel):
             half_damage_to=list(pokemon_type.half_damage_to),
             no_damage_from=list(pokemon_type.no_damage_from),
             no_damage_to=list(pokemon_type.no_damage_to),
+            pokemon=list(pokemon_type.pokemon[:MAX_TYPE_POKEMON]),
+            pokemon_total=len(pokemon_type.pokemon),
         )
 
 
 class EvolutionStageOut(BaseModel):
     species: str
+    how: list[str]  # how the previous stage evolves into this one; empty for the root
     evolves_to: list[EvolutionStageOut]
 
     @classmethod
     def from_domain(cls, stage: EvolutionStage) -> Self:
         return cls(
             species=stage.species,
+            how=list(stage.conditions),
             evolves_to=[cls.from_domain(next_stage) for next_stage in stage.evolves_to],
         )
 
 
 class EvolutionChainOut(BaseModel):
-    id: int
+    id: int | None  # None: the Pokémon does not evolve
     chain: EvolutionStageOut
 
     @classmethod

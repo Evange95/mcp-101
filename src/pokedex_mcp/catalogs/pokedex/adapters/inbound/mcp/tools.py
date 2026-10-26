@@ -18,13 +18,15 @@ from pokedex_mcp.catalogs.pokedex.adapters.inbound.mcp.schemas import (
     TypeOut,
 )
 from pokedex_mcp.catalogs.pokedex.application.use_cases import MAX_PAGE_SIZE, PokedexService
-from pokedex_mcp.catalogs.pokedex.domain.errors import PokedexError
+from pokedex_mcp.catalogs.pokedex.domain.errors import NotFound, PokedexError, PokedexUnavailable
 
 PREFIX = "pokemon_"
 INSTRUCTIONS = (
     "Pokémon (data from PokeAPI): tools start with `pokemon_`. Look up a Pokémon by English "
-    "name or National Pokédex number with `pokemon_get`, then use `pokemon_get_species`, "
-    "`pokemon_get_type`, `pokemon_get_evolution_chain` and `pokemon_get_move` for details."
+    "name or National Pokédex number with `pokemon_get` (forms are dashed: 'deoxys-attack'; "
+    "a plain species name resolves to its default form); search names with "
+    "`pokemon_list(name=...)`; use `pokemon_get_species`, `pokemon_get_type`, "
+    "`pokemon_get_evolution_chain` and `pokemon_get_move` for details."
 )
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, idempotent_hint=True, open_world_hint=True)
@@ -35,12 +37,24 @@ NameOrId = Annotated[
 ]
 
 
+def tool_error_message(error: PokedexError) -> str:
+    """The domain message plus what the model should do next."""
+    if isinstance(error, NotFound):
+        end = "" if error.suggestions else "."  # a suggestion already ends with "?"
+        return f"{error}{end} Search names with pokemon_list(name=...)."
+    if isinstance(error, PokedexUnavailable):
+        if error.retryable:
+            return f"{error}. Try again in a few seconds."
+        return f"{error}. Retrying will not help: tell the user Pokémon data is unavailable."
+    return str(error)
+
+
 @contextmanager
 def _domain_errors_as_tool_errors() -> Generator[None]:
     try:
         yield
     except PokedexError as exc:
-        raise ToolError(str(exc)) from exc
+        raise ToolError(tool_error_message(exc)) from exc
 
 
 class PokedexTools:
@@ -72,25 +86,31 @@ class PokedexTools:
 
     async def pokemon_list(
         self,
-        limit: Annotated[int, Field(ge=1, le=MAX_PAGE_SIZE, description="Page size")] = 20,
-        offset: Annotated[int, Field(ge=0, description="Number of Pokémon to skip")] = 0,
+        page: Annotated[int, Field(ge=0, description="Zero-based page number")] = 0,
+        page_size: Annotated[int, Field(ge=1, le=MAX_PAGE_SIZE, description="Page size")] = 20,
+        name: Annotated[
+            str | None, Field(description="Part of the name, e.g. 'chu' or 'deoxys'")
+        ] = None,
     ) -> PokemonPageOut:
-        """List Pokémon names and ids in National Pokédex order, paginated."""
+        """List or search Pokémon names and ids (forms included) in National Pokédex order.
+
+        Use `name` to find the exact spelling of a Pokémon or its forms.
+        """
         with _domain_errors_as_tool_errors():
-            return PokemonPageOut.from_domain(await self._service.list_pokemon(limit, offset))
+            result = await self._service.list_pokemon(page, page_size, name=name)
+            return PokemonPageOut.from_domain(result)
 
     async def pokemon_get_type(self, name_or_id: NameOrId) -> TypeOut:
         """Get a Pokémon type's damage relations: weaknesses, resistances and immunities."""
         with _domain_errors_as_tool_errors():
             return TypeOut.from_domain(await self._service.get_type(name_or_id))
 
-    async def pokemon_get_evolution_chain(
-        self,
-        pokemon: Annotated[str | int, Field(description="Name or id of any Pokémon in the chain")],
-    ) -> EvolutionChainOut:
-        """Get the full evolution tree a Pokémon belongs to (supports branching evolutions)."""
+    async def pokemon_get_evolution_chain(self, name_or_id: NameOrId) -> EvolutionChainOut:
+        """Get the evolution tree a Pokémon belongs to, with how each evolution happens
+        (level, item, trade, happiness...). Supports branching evolutions."""
         with _domain_errors_as_tool_errors():
-            return EvolutionChainOut.from_domain(await self._service.get_evolution_chain(pokemon))
+            chain = await self._service.get_evolution_chain(name_or_id)
+            return EvolutionChainOut.from_domain(chain)
 
     async def pokemon_get_move(self, name_or_id: NameOrId) -> MoveOut:
         """Get a Pokémon move's type, damage class, power, accuracy, PP and effect."""

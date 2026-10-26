@@ -6,6 +6,7 @@ from pokedex_mcp.catalogs.pokedex.adapters.outbound.telemetry.otel import OtelPo
 from pokedex_mcp.catalogs.pokedex.application.use_cases import PokedexService
 from pokedex_mcp.catalogs.pokedex.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
 from pokedex_mcp.platform.telemetry.resilience import OtelCacheProbe
+from tests.builders import make_pokemon, make_species
 from tests.fakes import FakePokedexRepository, full_repository
 from tests.otel import Otel
 
@@ -37,7 +38,7 @@ async def test_not_found_and_rejected_lookups_are_not_span_errors(otel):
     with pytest.raises(NotFound):
         await service(otel).get_move("splash")
     with pytest.raises(InvalidQuery):
-        await service(otel).list_pokemon(limit=0)
+        await service(otel).list_pokemon(page_size=0)
 
     spans = otel.finished_spans()
     assert spans["pokedex.lookup move"].attributes["catalog.outcome"] == "not_found"
@@ -71,13 +72,24 @@ async def test_unexpected_exceptions_are_recorded_as_errors(otel):
     assert otel.counts("catalog.lookups") == {("pokedex", "pokemon", "error"): 1}
 
 
-async def test_the_species_span_is_a_child_of_the_evolution_chain_span(otel):
+async def test_an_evolution_chain_is_one_span_and_one_lookup(otel):
     await service(otel).get_evolution_chain("pikachu")
 
-    spans = otel.finished_spans()
-    chain, species = spans["pokedex.lookup evolution_chain"], spans["pokedex.lookup species"]
-    assert species.parent is not None
-    assert species.parent.span_id == chain.context.span_id
+    assert list(otel.finished_spans()) == ["pokedex.lookup evolution_chain"]
+    assert otel.counts("catalog.lookups") == {("pokedex", "evolution_chain", "found"): 1}
+
+
+async def test_a_resolved_name_is_recorded_on_the_span(otel):
+    repository = FakePokedexRepository(
+        pokemon=[make_pokemon("deoxys-normal", 386)],
+        species=[make_species("deoxys", 386, default_variety="deoxys-normal")],
+    )
+
+    await service(otel, repository).get_pokemon("deoxys")
+
+    span = otel.finished_spans()["pokedex.lookup pokemon"]
+    assert span.attributes["catalog.key"] == "deoxys"
+    assert span.attributes["catalog.resolved_key"] == "deoxys-normal"
 
 
 async def test_lookups_are_counted_and_timed_by_outcome(otel):

@@ -18,7 +18,7 @@ from tests.digimon.builders import make_digimon
 
 
 class FakeDigimonRepository:
-    """Keys are matched like digi-api does: lowercase name or id. `where.name` is a substring."""
+    """Keys are matched like digi-api does: lowercase name or id."""
 
     def __init__(self, digimon: Iterable[Digimon] = ()) -> None:
         self._digimon = {d.id: d for d in digimon}
@@ -40,13 +40,16 @@ class FakeDigimonRepository:
                 return digimon
         raise NotFound("Digimon", key)
 
+    async def digimon_index(self) -> tuple[DigimonSummary, ...]:
+        self._record("digimon_index")
+        return tuple(DigimonSummary(d.id, d.name) for _, d in sorted(self._digimon.items()))
+
     async def list_digimon(self, page: int, page_size: int, where: DigimonFilter) -> DigimonPage:
-        self._record("list_digimon", page, page_size, where.name, where.level, where.attribute)
+        self._record("list_digimon", page, page_size, where.level, where.attribute)
         matching = [
             d
             for _, d in sorted(self._digimon.items())
-            if (where.name is None or where.name in d.name.lower())
-            and (where.level is None or where.level in (lvl.lower() for lvl in d.levels))
+            if (where.level is None or where.level in (lvl.lower() for lvl in d.levels))
             and (where.attribute is None or where.attribute in (a.lower() for a in d.attributes))
         ]
         start = page * page_size
@@ -61,6 +64,9 @@ class _RecordingLookupProbe:
 
     def query_normalized(self, key: str) -> None:
         self._events.append(f"{self._lookup}: normalized {key}")
+
+    def query_resolved(self, key: str) -> None:
+        self._events.append(f"{self._lookup}: resolved {key}")
 
     def found(self) -> None:
         self._events.append(f"{self._lookup}: found")
@@ -103,6 +109,7 @@ def full_repository() -> FakeDigimonRepository:
 # Each param is a Callable[[DigimonRepository], Awaitable[object]].
 REPOSITORY_OPERATIONS: list[object] = [
     pytest.param(lambda r: r.get_digimon("agumon"), id="get_digimon"),
+    pytest.param(lambda r: r.digimon_index(), id="digimon_index"),
     pytest.param(lambda r: r.list_digimon(0, 20, DigimonFilter()), id="list_digimon"),
 ]
 

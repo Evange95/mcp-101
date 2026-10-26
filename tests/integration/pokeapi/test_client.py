@@ -7,11 +7,8 @@ import respx
 from pokedex_mcp.catalogs.pokedex.adapters.outbound.pokeapi.client import PokeApiRepository
 from pokedex_mcp.catalogs.pokedex.domain.errors import NotFound, PokedexUnavailable
 from pokedex_mcp.catalogs.pokedex.domain.models import (
-    EvolutionChain,
-    EvolutionStage,
     Move,
     Pokemon,
-    PokemonPage,
     PokemonSpecies,
     PokemonStat,
     PokemonSummary,
@@ -71,6 +68,7 @@ async def test_get_species_picks_the_english_flavor_text_and_chain_id(repository
         flavor_text="When several of these POKéMON gather, their electricity could build "
         "and cause lightning storms.",
         evolution_chain_id=10,
+        default_variety="pikachu",
     )
 
 
@@ -86,17 +84,25 @@ async def test_get_species_without_english_text_or_chain(repository, pokeapi):
     assert species.evolution_chain_id is None
 
 
-async def test_list_pokemon_sends_pagination_and_extracts_ids(repository, pokeapi):
-    pokeapi.get("/pokemon", params={"limit": "2", "offset": "0"}).respond(
-        json=load_json("pokemon_list.json")
+async def test_the_index_is_one_call_for_every_name_with_ids(repository, pokeapi):
+    route = pokeapi.get("/pokemon", params={"limit": "100000"}).respond(
+        json=load_json("pokemon_index.json")
     )
 
-    assert await repository.list_pokemon(limit=2, offset=0) == PokemonPage(
-        total=1351,
-        limit=2,
-        offset=0,
-        items=(PokemonSummary(id=1, name="bulbasaur"), PokemonSummary(id=2, name="ivysaur")),
+    index = await repository.pokemon_index()
+
+    assert route.call_count == 1
+    assert index[:2] == (
+        PokemonSummary(id=1, name="bulbasaur"),
+        PokemonSummary(id=2, name="ivysaur"),
     )
+    assert PokemonSummary(id=10001, name="deoxys-attack") in index
+
+
+async def test_species_name_their_default_form(repository, pokeapi):
+    pokeapi.get("/pokemon-species/deoxys").respond(json=load_json("species_deoxys.json"))
+
+    assert (await repository.get_species("deoxys")).default_variety == "deoxys-normal"
 
 
 async def test_http_404_becomes_not_found(repository, pokeapi):
@@ -151,18 +157,35 @@ async def test_get_type_maps_damage_relations(repository, pokeapi):
         half_damage_to=("grass", "electric", "dragon"),
         no_damage_from=(),
         no_damage_to=("ground",),
+        pokemon=("pikachu", "raichu", "magnemite"),
     )
 
 
-async def test_get_evolution_chain_maps_a_branching_tree(repository, pokeapi):
+async def test_get_evolution_chain_maps_a_branching_tree_with_how_to_evolve(repository, pokeapi):
     pokeapi.get("/evolution-chain/67").respond(json=load_json("evolution_chain_eevee.json"))
 
-    assert await repository.get_evolution_chain(67) == EvolutionChain(
-        id=67,
-        root=EvolutionStage(
-            "eevee",
-            (EvolutionStage("vaporeon"), EvolutionStage("jolteon"), EvolutionStage("flareon")),
-        ),
+    chain = await repository.get_evolution_chain(67)
+
+    assert chain.id == 67
+    assert chain.root.species == "eevee"
+    assert chain.root.conditions == ()
+    how = {stage.species: stage.conditions for stage in chain.root.evolves_to}
+    assert list(how) == [
+        "vaporeon",
+        "jolteon",
+        "flareon",
+        "espeon",
+        "umbreon",
+        "leafeon",
+        "glaceon",
+        "sylveon",
+    ]
+    assert how["vaporeon"] == ("use a water-stone",)
+    assert how["umbreon"] == ("level up with happiness 160+ during the night",)
+    assert how["leafeon"][0] == "level up at eterna-forest"  # one entry per game location
+    assert how["sylveon"] == (
+        "level up knowing a fairy-type move with affection 2+",
+        "level up knowing a fairy-type move with happiness 160+",
     )
 
 

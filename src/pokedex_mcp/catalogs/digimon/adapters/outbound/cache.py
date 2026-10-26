@@ -4,7 +4,12 @@ import time
 from typing import TYPE_CHECKING
 
 from pokedex_mcp.catalogs.digimon.application.ports import DigimonRepository
-from pokedex_mcp.catalogs.digimon.domain.models import Digimon, DigimonFilter, DigimonPage
+from pokedex_mcp.catalogs.digimon.domain.models import (
+    Digimon,
+    DigimonFilter,
+    DigimonPage,
+    DigimonSummary,
+)
 from pokedex_mcp.platform.resilience.cache import CacheProbe, Clock, TtlLruCache
 
 
@@ -27,6 +32,9 @@ class CachedDigimonRepository:
 
     async def get_digimon(self, key: str) -> Digimon:
         return await self._cache.get_or_load(("digimon", key), lambda: self._inner.get_digimon(key))
+
+    async def digimon_index(self) -> tuple[DigimonSummary, ...]:
+        return await self._cache.get_or_load(("index",), self._inner.digimon_index)
 
     async def list_digimon(self, page: int, page_size: int, where: DigimonFilter) -> DigimonPage:
         return await self._cache.get_or_load(

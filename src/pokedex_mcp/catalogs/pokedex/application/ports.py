@@ -6,8 +6,8 @@ from pokedex_mcp.catalogs.pokedex.domain.models import (
     EvolutionChain,
     Move,
     Pokemon,
-    PokemonPage,
     PokemonSpecies,
+    PokemonSummary,
     PokemonType,
 )
 
@@ -23,7 +23,10 @@ class PokedexRepository(Protocol):
 
     async def get_species(self, key: str) -> PokemonSpecies: ...
 
-    async def list_pokemon(self, limit: int, offset: int) -> PokemonPage: ...
+    async def pokemon_index(self) -> tuple[PokemonSummary, ...]:
+        """Every Pokémon (forms included) in National Pokédex order: for listing,
+        searching by name and suggesting close names. Small and stable, cache it long."""
+        ...
 
     async def get_type(self, key: str) -> PokemonType: ...
 

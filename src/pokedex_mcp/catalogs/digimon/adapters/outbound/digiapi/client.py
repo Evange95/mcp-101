@@ -6,7 +6,11 @@ from urllib.parse import quote
 import httpx
 from pydantic import BaseModel, ValidationError
 
-from pokedex_mcp.catalogs.digimon.adapters.outbound.digiapi.mappers import to_digimon, to_page
+from pokedex_mcp.catalogs.digimon.adapters.outbound.digiapi.mappers import (
+    to_digimon,
+    to_page,
+    to_summaries,
+)
 from pokedex_mcp.catalogs.digimon.adapters.outbound.digiapi.schemas import (
     DigimonDTO,
     DigimonListDTO,
@@ -14,10 +18,17 @@ from pokedex_mcp.catalogs.digimon.adapters.outbound.digiapi.schemas import (
 )
 from pokedex_mcp.catalogs.digimon.adapters.outbound.probes import DigiApiProbe, NullDigiApiProbe
 from pokedex_mcp.catalogs.digimon.domain.errors import DigimonUnavailable, NotFound
-from pokedex_mcp.catalogs.digimon.domain.models import Digimon, DigimonFilter, DigimonPage
+from pokedex_mcp.catalogs.digimon.domain.models import (
+    Digimon,
+    DigimonFilter,
+    DigimonPage,
+    DigimonSummary,
+)
 from pokedex_mcp.platform.upstream.auth import TokenUnavailable
 
 UPSTREAM = "digi-api"
+# digi-api accepts big pages: today one call returns all ~1,500 names.
+INDEX_PAGE_SIZE = 5000
 
 
 def _is_not_found(response: httpx.Response) -> bool:
@@ -44,9 +55,22 @@ class DigiApiRepository:
         path = f"digimon/{quote(key, safe='')}"
         return to_digimon(await self._fetch(path, DigimonDTO, resource="Digimon", key=key))
 
+    async def digimon_index(self) -> tuple[DigimonSummary, ...]:
+        names: list[DigimonSummary] = []
+        page = 0
+        while True:
+            params: dict[str, str | int] = {"page": page, "pageSize": INDEX_PAGE_SIZE}
+            dto = await self._fetch(
+                "digimon", DigimonListDTO, resource="Digimon list", key="index", params=params
+            )
+            names.extend(to_summaries(dto))
+            page += 1
+            if page >= dto.pageable.total_pages:
+                return tuple(names)
+
     async def list_digimon(self, page: int, page_size: int, where: DigimonFilter) -> DigimonPage:
         params: dict[str, str | int] = {"page": page, "pageSize": page_size}
-        filters = {"name": where.name, "level": where.level, "attribute": where.attribute}
+        filters = {"level": where.level, "attribute": where.attribute}
         params |= {name: value for name, value in filters.items() if value is not None}
         dto = await self._fetch(
             "digimon", DigimonListDTO, resource="Digimon list", key=str(params), params=params

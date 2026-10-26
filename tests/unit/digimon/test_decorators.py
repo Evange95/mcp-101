@@ -36,9 +36,9 @@ async def test_list_pages_with_different_filters_are_cached_separately():
     probe = RecordingAdapterProbe()
     repository = cached(inner, probe)
 
-    await repository.list_digimon(0, 20, DigimonFilter(name="greymon"))
-    await repository.list_digimon(0, 20, DigimonFilter(name="agumon"))
-    await repository.list_digimon(0, 20, DigimonFilter(name="greymon"))
+    await repository.list_digimon(0, 20, DigimonFilter(level="child"))
+    await repository.list_digimon(0, 20, DigimonFilter(level="adult"))
+    await repository.list_digimon(0, 20, DigimonFilter(level="child"))
 
     assert len(inner.calls) == 2
     assert probe.events == ["miss list", "miss list", "hit list"]

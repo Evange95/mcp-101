@@ -30,6 +30,8 @@ class PokemonSpecies:
     is_mythical: bool
     flavor_text: str | None
     evolution_chain_id: int | None
+    # The Pokémon (form) a species name stands for: "deoxys" -> "deoxys-normal".
+    default_variety: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,9 +43,13 @@ class PokemonSummary:
 @dataclass(frozen=True, slots=True)
 class PokemonPage:
     total: int
-    limit: int
-    offset: int
+    page: int
+    page_size: int
     items: tuple[PokemonSummary, ...]
+
+    @property
+    def has_more(self) -> bool:
+        return (self.page + 1) * self.page_size < self.total
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,17 +62,21 @@ class PokemonType:
     half_damage_to: tuple[str, ...]
     no_damage_from: tuple[str, ...]
     no_damage_to: tuple[str, ...]
+    pokemon: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class EvolutionStage:
     species: str
     evolves_to: tuple[EvolutionStage, ...] = ()
+    # How the previous stage evolves into this one, one entry per known way, in plain
+    # words ("level up at level 16", "use a water-stone"). Empty for the root.
+    conditions: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class EvolutionChain:
-    id: int
+    id: int | None  # None: the species does not evolve, the chain is just itself
     root: EvolutionStage
 
 

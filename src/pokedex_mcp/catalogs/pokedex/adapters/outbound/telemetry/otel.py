@@ -30,6 +30,9 @@ class _OtelLookupProbe:
     def query_normalized(self, key: str) -> None:
         self._span.set_attribute(names.KEY, key)
 
+    def query_resolved(self, key: str) -> None:
+        self._span.set_attribute(names.RESOLVED_KEY, key)
+
     def found(self) -> None:
         self._end("found")
 

@@ -17,11 +17,11 @@ list the catalogs and their prefixes.
 
 | Tool | Description |
 |---|---|
-| `pokemon_get(name_or_id)` | Types, abilities, base stats, height/weight, sprite |
+| `pokemon_get(name_or_id)` | Types, abilities, base stats, height/weight, sprite. A species name with forms (`deoxys`) resolves to its default form (`deoxys-normal`) |
 | `pokemon_get_species(name_or_id)` | Pokédex description, generation, legendary/mythical |
-| `pokemon_list(limit=20, offset=0)` | Paginated list in National Pokédex order |
-| `pokemon_get_type(name_or_id)` | Damage relations (weaknesses, resistances, immunities) |
-| `pokemon_get_evolution_chain(pokemon)` | Full evolution tree for any Pokémon in the chain |
+| `pokemon_list(page=0, page_size=20, name=None)` | List or search names (forms included) in National Pokédex order; `name` matches part of the name |
+| `pokemon_get_type(name_or_id)` | Damage relations (weaknesses, resistances, immunities), first 50 Pokémon of the type |
+| `pokemon_get_evolution_chain(name_or_id)` | Evolution tree for any Pokémon in the chain, with how each evolution happens (`how`) |
 | `pokemon_get_move(name_or_id)` | Type, damage class, power, accuracy, PP, effect |
 
 **Digimon** (`digimon_`, data from digi-api.com, off unless `POKEDEX_DIGIMON_ENABLED=true`)
@@ -29,9 +29,9 @@ list the catalogs and their prefixes.
 
 | Tool | Description |
 |---|---|
-| `digimon_get(name_or_id)` | Levels, types, attributes, fields, description, skills, image, digivolution counts |
-| `digimon_list(page=0, page_size=20, name=None, level=None, attribute=None)` | Paginated list; filters are case-insensitive, `name` matches part of the name |
-| `digimon_get_digivolutions(name_or_id)` | What it digivolves from and into, with the condition of each path |
+| `digimon_get(name_or_id)` | Levels, types, attributes, fields, description, skills, image, digivolution counts. `WarGreymon` resolves to `War Greymon` |
+| `digimon_list(page=0, page_size=20, name=None, level=None, attribute=None)` | Paginated list; filters are case-insensitive, `name` matches part of the name, `level` and `attribute` are validated |
+| `digimon_get_digivolutions(name_or_id, limit=30)` | What it digivolves from and into, with the condition of each path, cut at `limit` per direction (totals included) |
 
 `tests/integration/test_tools_documented.py` fails if these tables and the tools the
 server exposes (with every feature flag on) differ. Add a row here whenever you add a tool.
@@ -39,6 +39,44 @@ server exposes (with every feature flag on) differ. Add a row here whenever you 
 Every tool is read-only (`readOnlyHint`, `idempotentHint`, `openWorldHint`). Domain errors
 (not found, invalid query, source unavailable) come back as MCP tool errors (`isError:
 true`) with a readable message, never as protocol errors.
+
+### Designed for the model that calls them
+
+A model calls these tools with names it remembers, often slightly wrong. The tools are
+built so that a wrong first call is cheap and the second one is right:
+
+- **Names are resolved, not just looked up.**
+  - Pokémon: input is normalized (`Mr. Mime` → `mr-mime`, `Nidoran♀` → `nidoran-f`).
+    If `/pokemon/<name>` does not exist but the species does, the species' default form
+    is returned (`deoxys` → `deoxys-normal`; PokeAPI itself answers 404 there).
+  - Digimon: a name that differs only in spacing or punctuation from exactly one real
+    name is resolved to it (`WarGreymon`, `war-greymon` → `War Greymon`).
+  - Both announce `query_resolved`, so you can see how often models misname things
+    (`catalog.resolved_key` on the span, an INFO log line).
+- **"Not found" says what to do next.** The server keeps a name index per catalog (one
+  upstream call each, cached like everything else) and suggests close names, then points
+  to the search: `Pokémon 'pikachuu' not found. Did you mean: 'pikachu'? Search names with
+  pokemon_list(name=...).` Numeric ids get no suggestions. If the index cannot be read,
+  the answer is still the plain "not found", never "unavailable".
+- **Errors say whether to retry.** A transient failure ends with `Try again in a few
+  seconds.`; a permanent one (refused token, unexpected payload, HTTP 4xx) with `Retrying
+  will not help: tell the user ... data is unavailable.`
+- **One pagination convention.** Both list tools take `page` (zero-based) and `page_size`
+  (1–100) and answer `total`, `page`, `page_size`, `has_more` and `items`: no offset
+  arithmetic for the model.
+- **Search where the upstream cannot.** PokeAPI has no name filter, and digi-api's only
+  matches the start of a name, so both `pokemon_list(name=...)` and
+  `digimon_list(name=...)` search the cached name index locally (any part of the name).
+- **Inputs with a fixed vocabulary are validated.** `digimon_list(level=...)` accepts
+  digi-api's Japanese level names and the English dub names that are unambiguous
+  (`Rookie` → Child, `Champion` → Adult, `Mega` → Ultimate). The dub's "Ultimate" is
+  *Perfect* here, and the tool description says so. An unknown level or attribute is
+  rejected with the valid values, instead of silently returning `total: 0`.
+- **Answers stay small.** `digimon_get` returns digivolution counts only;
+  `digimon_get_digivolutions` cuts each list at `limit` (default 30) and reports totals
+  and `truncated`; `pokemon_get_type` lists at most 50 Pokémon plus `pokemon_total`.
+- **A non-evolving Pokémon is an answer, not an error.** `pokemon_get_evolution_chain`
+  returns a one-stage chain with `id: null` instead of "not found".
 
 ## Architecture
 
@@ -187,13 +225,17 @@ POKEDEX_DIGIMON_ENABLED=true uv run pokedex-mcp
 
 | digi-api behavior | What the catalog does |
 |---|---|
-| Names keep spaces and parentheses: `War Greymon`, `Greymon (Blue)`. `wargreymon` does not exist. | `normalize_key` only trims, collapses spaces and lowercases. It never turns spaces into dashes like the Pokédex does. The tool description and the MCP instructions tell the model that spaces count. |
+| Names keep spaces and parentheses: `War Greymon`, `Greymon (Blue)`. `wargreymon` does not exist. | `normalize_key` only trims, collapses spaces and lowercases. It never turns spaces into dashes like the Pokédex does. On a miss, the service compares names without spaces and punctuation against the name index and resolves `WarGreymon` to `War Greymon` (see [Designed for the model](#designed-for-the-model-that-calls-them)). |
+| `pageSize` can be as large as the catalog (one call returns all ~1,500 names). | `digimon_index` asks for pages of 5,000 and follows `totalPages`, so it still works if the catalog grows. |
 | Name lookup and list filters are case-insensitive. | Keys and filters are lowercased, so `Agumon` and `AGUMON` share one cache entry. |
+| The `name` list filter only matches the **start** of a name: `name=greymon` misses `War Greymon`, `name=mon` returns only names starting with "Mon". | `digimon_list(name=...)` never sends `name` upstream. It searches the cached name index (any part of the name, ignoring spaces and punctuation) and, if `level` / `attribute` are set too, intersects with the upstream list filtered by them (read in pages of 5,000). |
+| Names are the Japanese ones: `Omegamon`, not the dub's Omnimon. | The MCP instructions say so; a dub name gets "not found" with suggestions, and the model can search. |
 | An unknown Digimon is **HTTP 400** `{"error": 1, "message": "Digimon not found"}`, not 404. | `DigiApiRepository` maps a 400 whose message says "not found" (and a 404) to `NotFound`. Any other 400 is a non-retryable `DigimonUnavailable`. |
 | An unknown path returns the HTML website with **200**. | The DTO validation fails, the adapter announces `unexpected_payload` and fails without retrying. Keys containing `/ \ ? # %` are rejected before any call, so a key cannot change the path or the query. |
 | An empty page has no `content` field at all. | `content` defaults to `[]`. |
 | `""` means "unknown" (conditions, translations, release date). | Mapped to `None` in the domain. |
-| Agumon digivolves into 88 Digimon. | `digimon_get` returns only the counts (`digivolves_to_count`); the lists are in `digimon_get_digivolutions`. Both tools read the same record, so the second call is a cache hit. |
+| Agumon digivolves into 88 Digimon. | `digimon_get` returns only the counts (`digivolves_to_count`); the lists are in `digimon_get_digivolutions`, cut at `limit`. Both tools read the same record, so the second call is a cache hit. |
+| An unknown `level` or `attribute` filter returns an empty page, no error. | The service validates both against digi-api's vocabulary (`domain/models.py`: `LEVELS`, `ATTRIBUTES`, `DUB_LEVELS`) before calling. |
 
 **Design choices.**
 
@@ -219,11 +261,11 @@ POKEDEX_DIGIMON_ENABLED=true uv run pokedex-mcp
 
 | Situation | Message |
 |---|---|
-| unknown name | `Digimon 'wargreymon' not found` |
-| invalid input | `name or id must not be empty`, `page_size must be between 1 and 100`, ... |
-| digi-api down or slow (after retries) | `Digimon service temporarily unavailable: digi-api returned HTTP 503` |
-| token refused (401/403), never retried | `... digi-api refused our access token (HTTP 401)` |
-| token file missing or empty | `... no access token: the token file is empty` |
+| unknown name | `Digimon 'agumonn' not found. Did you mean: 'Agumon'? Search names with digimon_list(name=...).` |
+| invalid input | `name or id must not be empty`, `page_size must be between 1 and 100`, `unknown level 'Champions'. Use a Japanese level name: ...` |
+| digi-api down or slow (after retries) | `Digimon data source unavailable: digi-api returned HTTP 503. Try again in a few seconds.` |
+| token refused (401/403), never retried | `... digi-api refused our access token (HTTP 401). Retrying will not help: tell the user Digimon data is unavailable.` |
+| token file missing or empty | `... no access token: the token file is empty. Retrying will not help: ...` |
 
 ## Observability
 
@@ -257,7 +299,7 @@ or a metric is decided by adapters. Why do it this way:
 | Probe | Defined in | Announcements |
 |---|---|---|
 | `PokedexProbe.lookup(lookup, query)` → `LookupProbe` | `catalogs/pokedex/application/probes.py` | context manager bracketing one lookup |
-| `LookupProbe` | `catalogs/pokedex/application/probes.py` | `query_normalized(key)`, `found()`, `not_found(error)`, `query_rejected(error)`, `source_unavailable(error)` |
+| `LookupProbe` | `catalogs/pokedex/application/probes.py` | `query_normalized(key)`, `query_resolved(key)` (the key did not exist and a form or a respelling was looked up instead), `found()`, `not_found(error)`, `query_rejected(error)`, `source_unavailable(error)` |
 | `CacheProbe` | `platform/resilience/cache.py` | `hit(resource)`, `miss(resource, expired=)`, `evicted(resource)` |
 | `RetryProbe` | `platform/resilience/retry.py` | `retry_scheduled(attempt=, reason=, wait_seconds=)` — `reason` comes from the caller's `reason` function (for the Pokédex: `PokedexUnavailable.reason`) |
 | `PokeApiProbe` | `catalogs/pokedex/adapters/outbound/probes.py` | `unexpected_payload(resource, path, error)` |
@@ -312,8 +354,9 @@ POST                                     FastAPI server span (named "POST": /mcp
       └─ GET                             httpx client span → PokeAPI (absent on a cache hit)
 ```
 
-`pokemon_get_evolution_chain` nests a `pokedex.lookup species` span inside
-`pokedex.lookup evolution_chain`, because it resolves the chain id through the species.
+One tool call is one lookup span, and one `catalog.lookups` count.
+`pokemon_get_evolution_chain` reads the species to find the chain id, but through the
+repository, not through `get_species`, so it is not counted (or failed) twice.
 
 The span name keeps the catalog (`pokedex.lookup pokemon`, `digimon.lookup digimon`), so a
 trace reads at a glance. Everything you query or filter on is an attribute with a shared
@@ -325,6 +368,7 @@ name, the same for every catalog:
 | `catalog.lookup` | which lookup: `pokemon`, `species`, `pokemon_list`, `type`, `evolution_chain`, `move` (Pokédex); `digimon`, `digimon_list`, `digivolutions` (Digimon) |
 | `catalog.query` | raw user input, truncated to 100 characters |
 | `catalog.key` | normalized key sent upstream (`Mr. Mime` → `mr-mime`, `War Greymon` → `war greymon`) |
+| `catalog.resolved_key` | when the key did not exist and the lookup was resolved: the key actually used (`deoxys-normal`, `war greymon`) |
 | `catalog.outcome` | `found`, `not_found`, `rejected`, `unavailable` or `error` |
 | `catalog.resource` | on `not_found`: the missing resource (`Pokémon`, `Evolution chain`, `Digimon`, ...) |
 | `catalog.rejection` | on `rejected`: why the query was invalid |
@@ -389,7 +433,7 @@ spans and logs, never on metrics. Metrics are exported every 60 s
 | Logger | Level | When |
 |---|---|---|
 | `pokedex_mcp.pokedex.lookups`, `pokedex_mcp.digimon.lookups` | DEBUG | query normalized, lookup found |
-| same | INFO | not found, query rejected |
+| same | INFO | query resolved to another key, not found, query rejected |
 | same | WARNING | data source unavailable |
 | `pokedex_mcp.cache` | DEBUG | hit, miss, expired, evicted (any catalog; the message names it) |
 | `pokedex_mcp.retry` | WARNING | a transient failure will be retried (any catalog) |

@@ -25,7 +25,10 @@ def make_pokemon(name: str = "pikachu", id: int = 25) -> Pokemon:
 
 
 def make_species(
-    name: str = "pikachu", id: int = 25, evolution_chain_id: int | None = 10
+    name: str = "pikachu",
+    id: int = 25,
+    evolution_chain_id: int | None = 10,
+    default_variety: str | None = None,
 ) -> PokemonSpecies:
     return PokemonSpecies(
         id=id,
@@ -36,6 +39,7 @@ def make_species(
         flavor_text="When several of these POKéMON gather, their electricity could build "
         "and cause lightning storms.",
         evolution_chain_id=evolution_chain_id,
+        default_variety=default_variety,
     )
 
 

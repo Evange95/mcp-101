@@ -1,0 +1,56 @@
+{
+  "id": 386,
+  "name": "deoxys",
+  "generation": {
+    "name": "generation-iii",
+    "url": "https://pokeapi.co/api/v2/generation/3/"
+  },
+  "is_legendary": false,
+  "is_mythical": true,
+  "evolution_chain": {
+    "url": "https://pokeapi.co/api/v2/evolution-chain/202/"
+  },
+  "varieties": [
+    {
+      "is_default": true,
+      "pokemon": {
+        "name": "deoxys-normal",
+        "url": "https://pokeapi.co/api/v2/pokemon/386/"
+      }
+    },
+    {
+      "is_default": false,
+      "pokemon": {
+        "name": "deoxys-attack",
+        "url": "https://pokeapi.co/api/v2/pokemon/10001/"
+      }
+    },
+    {
+      "is_default": false,
+      "pokemon": {
+        "name": "deoxys-defense",
+        "url": "https://pokeapi.co/api/v2/pokemon/10002/"
+      }
+    },
+    {
+      "is_default": false,
+      "pokemon": {
+        "name": "deoxys-speed",
+        "url": "https://pokeapi.co/api/v2/pokemon/10003/"
+      }
+    }
+  ],
+  "flavor_text_entries": [
+    {
+      "flavor_text": "The DNA of a space virus underwent a\nsudden mutation upon exposure to a\nlaser beam and resulted in DEOXYS.\fThe crystalline organ on this POKéMON’s\nchest appears to be its brain.",
+      "language": {
+        "name": "en",
+        "url": "https://pokeapi.co/api/v2/language/9/"
+      },
+      "version": {
+        "name": "ruby",
+        "url": "https://pokeapi.co/api/v2/version/7/"
+      }
+    }
+  ]
+}

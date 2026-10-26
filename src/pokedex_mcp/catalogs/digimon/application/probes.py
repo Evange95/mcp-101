@@ -18,6 +18,11 @@ class LookupProbe(Protocol):
 
     def query_normalized(self, key: str) -> None: ...
 
+    def query_resolved(self, key: str) -> None:
+        """The normalized key did not exist, but unambiguously meant `key` ("wargreymon" ->
+        "war greymon"), which was looked up instead."""
+        ...
+
     def found(self) -> None: ...
 
     def not_found(self, error: NotFound) -> None: ...
@@ -35,6 +40,9 @@ class DigimonProbe(Protocol):
 
 class _NullLookupProbe:
     def query_normalized(self, key: str) -> None:
+        pass
+
+    def query_resolved(self, key: str) -> None:
         pass
 
     def found(self) -> None:

@@ -68,6 +68,7 @@ class DigimonRefDTO(_DTO):
 class PageableDTO(_DTO):
     current_page: int = Field(alias="currentPage")
     total_elements: int = Field(alias="totalElements")
+    total_pages: int = Field(alias="totalPages")
 
 
 class DigimonListDTO(_DTO):

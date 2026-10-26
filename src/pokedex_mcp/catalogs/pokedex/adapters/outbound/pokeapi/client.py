@@ -7,8 +7,8 @@ from pydantic import BaseModel, ValidationError
 
 from pokedex_mcp.catalogs.pokedex.adapters.outbound.pokeapi.mappers import (
     to_evolution_chain,
+    to_index,
     to_move,
-    to_page,
     to_pokemon,
     to_species,
     to_type,
@@ -27,10 +27,12 @@ from pokedex_mcp.catalogs.pokedex.domain.models import (
     EvolutionChain,
     Move,
     Pokemon,
-    PokemonPage,
     PokemonSpecies,
+    PokemonSummary,
     PokemonType,
 )
+
+INDEX_LIMIT = 100_000
 
 
 class PokeApiRepository:
@@ -48,15 +50,16 @@ class PokeApiRepository:
         dto = await self._fetch(f"pokemon-species/{key}", SpeciesDTO, resource="Species", key=key)
         return to_species(dto)
 
-    async def list_pokemon(self, limit: int, offset: int) -> PokemonPage:
+    async def pokemon_index(self) -> tuple[PokemonSummary, ...]:
+        # One call returns every name (~1,350, about 90 KB): far above the real count.
         dto = await self._fetch(
             "pokemon",
             PokemonListDTO,
             resource="Pokémon list",
-            key=f"limit={limit}&offset={offset}",
-            params={"limit": limit, "offset": offset},
+            key="index",
+            params={"limit": INDEX_LIMIT},
         )
-        return to_page(dto, limit=limit, offset=offset)
+        return to_index(dto)
 
     async def get_type(self, key: str) -> PokemonType:
         dto = await self._fetch(f"type/{key}", TypeDTO, resource="Type", key=key)

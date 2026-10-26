@@ -14,6 +14,7 @@ CACHE_RESULT = "catalog.cache.result"
 # Spans and logs only: unbounded values never go on metrics.
 QUERY = "catalog.query"
 KEY = "catalog.key"
+RESOLVED_KEY = "catalog.resolved_key"  # the key actually looked up, when it differs
 REJECTION = "catalog.rejection"
 RETRYABLE = "catalog.retryable"
 RETRY_ATTEMPT = "catalog.retry.attempt"

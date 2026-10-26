@@ -69,7 +69,8 @@ Inside each catalog (paths below are relative to `catalogs/pokedex/`), hexagonal
   never import Pokédex code from it or vice versa. digi-api quirks the adapter relies on:
   unknown Digimon = HTTP 400 with "not found" in `message`; names keep spaces (keys are
   lowercased and whitespace-collapsed, never dashed); empty pages omit `content`; unknown
-  paths return HTML with 200. The same rule as the Pokédex applies to its port: a new
+  paths return HTML with 200; the `name` filter is prefix-only, so name search runs on the
+  cached `digimon_index` and never upstream. The same rule as the Pokédex applies to its port: a new
   `DigimonRepository` method goes in every implementation, `tests/digimon/fakes.py` and
   its `REPOSITORY_OPERATIONS`.
 - `platform/upstream/`: service access tokens and `BearerAuth` (see "Upstream
@@ -124,6 +125,19 @@ Inside each catalog (paths below are relative to `catalogs/pokedex/`), hexagonal
 - Every tool needs a docstring (it is the description the model sees), typed parameters
   with `Field(description=...)`, a structured output model, and the read-only
   annotations. Domain errors become `ToolError`, never protocol errors.
+- **Design for the model** (README "Designed for the model that calls them"):
+  - list tools take `page` / `page_size` and return `total`, `page`, `page_size`,
+    `has_more`, `items`;
+  - the name parameter is `name_or_id` everywhere;
+  - `NotFound` carries `suggestions` from the catalog's name index (`pokemon_index`,
+    `digimon_index`) and an unambiguous misspelling is resolved (announce
+    `query_resolved`);
+  - errors go through the catalog's `tool_error_message`, which says what to do next
+    (search, retry, or stop);
+  - fixed vocabularies are validated with the valid values in the message;
+  - long lists are cut with a total next to them;
+  - suggestions never turn "not found" into "unavailable";
+  - a use case never calls another observed use case: one tool call = one lookup.
 - Adding, renaming or removing a tool: update the README `## Tools` table
   (`tests/integration/test_tools_documented.py` enforces it, with every feature flag on:
   add a new catalog's flag there), the agent allowlist (`agent/pokedex_agent/config.py`,

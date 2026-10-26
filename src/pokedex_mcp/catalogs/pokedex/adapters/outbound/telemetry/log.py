@@ -27,6 +27,9 @@ class _LoggingLookupProbe:
     def query_normalized(self, key: str) -> None:
         self._log(logging.DEBUG, "%s query %r normalized to %r", self._query, key, key=key)
 
+    def query_resolved(self, key: str) -> None:
+        self._log(logging.INFO, "%s query %r resolved to %r", self._query, key, resolved=key)
+
     def found(self) -> None:
         self._log(logging.DEBUG, "%s %r found", self._query, outcome="found")
 
@@ -51,12 +54,15 @@ class _LoggingLookupProbe:
         message: str,
         *args: object,
         key: str | None = None,
+        resolved: str | None = None,
         outcome: str | None = None,
     ) -> None:
         """`message` starts with a `%s` placeholder for the lookup name."""
         extra = {names.CATALOG: CATALOG, names.LOOKUP: self._lookup, names.QUERY: self._query}
         if key is not None:
             extra[names.KEY] = key
+        if resolved is not None:
+            extra[names.RESOLVED_KEY] = resolved
         if outcome is not None:
             extra[names.OUTCOME] = outcome
         self._logger.log(level, message, self._lookup, *args, extra=extra)

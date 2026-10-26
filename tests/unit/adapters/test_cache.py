@@ -54,10 +54,9 @@ async def test_different_keys_are_cached_separately():
 
     await repository.get_pokemon("pikachu")
     await repository.get_pokemon("bulbasaur")
-    await repository.list_pokemon(20, 0)
-    await repository.list_pokemon(20, 20)
+    await repository.get_species("pikachu")
 
-    assert len(inner.calls) == 4
+    assert len(inner.calls) == 3
 
 
 async def test_entries_expire_after_ttl():

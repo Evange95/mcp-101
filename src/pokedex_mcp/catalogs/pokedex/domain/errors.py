@@ -6,12 +6,19 @@ class PokedexError(Exception):
 
 
 class NotFound(PokedexError):
-    """The requested resource does not exist in the Pokédex."""
+    """The requested resource does not exist in the Pokédex.
 
-    def __init__(self, resource: str, key: str) -> None:
+    `suggestions` are existing names close to `key`, so the caller can correct itself.
+    """
+
+    def __init__(self, resource: str, key: str, suggestions: tuple[str, ...] = ()) -> None:
         self.resource = resource
         self.key = key
-        super().__init__(f"{resource} '{key}' not found")
+        self.suggestions = suggestions
+        message = f"{resource} '{key}' not found"
+        if suggestions:
+            message += ". Did you mean: " + ", ".join(f"'{name}'" for name in suggestions) + "?"
+        super().__init__(message)
 
 
 class PokedexUnavailable(PokedexError):
@@ -20,7 +27,7 @@ class PokedexUnavailable(PokedexError):
     def __init__(self, reason: str, *, retryable: bool = True) -> None:
         self.reason = reason
         self.retryable = retryable
-        super().__init__(f"Pokédex service temporarily unavailable: {reason}")
+        super().__init__(f"Pokédex data source unavailable: {reason}")
 
 
 class InvalidQuery(PokedexError):

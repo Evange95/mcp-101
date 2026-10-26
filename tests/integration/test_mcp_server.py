@@ -86,17 +86,25 @@ async def test_get_pokemon_species(client):
 
 
 async def test_list_pokemon(client):
-    result = await client.call_tool("pokemon_list", {"limit": 1, "offset": 1})
+    result = await client.call_tool("pokemon_list", {"page": 1, "page_size": 1})
 
     assert result.structured_content == {
         "total": 2,
-        "limit": 1,
-        "offset": 1,
+        "page": 1,
+        "page_size": 1,
+        "has_more": False,
         "items": [{"id": 25, "name": "pikachu"}],
     }
 
 
-@pytest.mark.parametrize("arguments", [{"limit": 0}, {"limit": 101}, {"offset": -1}])
+async def test_list_pokemon_searches_names(client):
+    result = await client.call_tool("pokemon_list", {"name": "chu"})
+
+    assert result.structured_content is not None
+    assert result.structured_content["items"] == [{"id": 25, "name": "pikachu"}]
+
+
+@pytest.mark.parametrize("arguments", [{"page_size": 0}, {"page_size": 101}, {"page": -1}])
 async def test_list_pokemon_rejects_out_of_range_pagination(client, repository, arguments):
     result = await client.call_tool("pokemon_list", arguments)
 
@@ -116,23 +124,37 @@ async def test_get_type(client):
         "half_damage_to": ["grass", "electric", "dragon"],
         "no_damage_from": [],
         "no_damage_to": ["ground"],
+        "pokemon": [],
+        "pokemon_total": 0,
     }
 
 
 async def test_get_evolution_chain_returns_the_tree(client):
-    result = await client.call_tool("pokemon_get_evolution_chain", {"pokemon": "pikachu"})
+    result = await client.call_tool("pokemon_get_evolution_chain", {"name_or_id": "pikachu"})
 
     assert result.structured_content == {
         "id": 10,
         "chain": {
             "species": "pichu",
+            "how": [],
             "evolves_to": [
                 {
                     "species": "pikachu",
-                    "evolves_to": [{"species": "raichu", "evolves_to": []}],
+                    "how": [],
+                    "evolves_to": [{"species": "raichu", "how": [], "evolves_to": []}],
                 }
             ],
         },
+    }
+
+
+async def test_a_pokemon_that_does_not_evolve_is_a_chain_of_itself(client):
+    result = await client.call_tool("pokemon_get_evolution_chain", {"name_or_id": "tauros"})
+
+    assert result.is_error is False
+    assert result.structured_content == {
+        "id": None,
+        "chain": {"species": "tauros", "how": [], "evolves_to": []},
     }
 
 
@@ -156,7 +178,15 @@ async def test_not_found_is_reported_as_a_tool_error(client):
     result = await client.call_tool("pokemon_get", {"name_or_id": "missingno"})
 
     assert result.is_error is True
-    assert "Pokémon 'missingno' not found" in text_of(result)
+    assert "Pokémon 'missingno' not found. Search names with pokemon_list(name=...)." in text_of(
+        result
+    )
+
+
+async def test_not_found_suggests_close_names(client):
+    result = await client.call_tool("pokemon_get", {"name_or_id": "pikachuu"})
+
+    assert "Did you mean: 'pikachu'? Search names with pokemon_list" in text_of(result)
 
 
 async def test_invalid_query_is_reported_as_a_tool_error(client):
@@ -180,4 +210,12 @@ async def test_unavailable_service_is_reported_as_a_tool_error(client, repositor
     result = await client.call_tool("pokemon_get", {"name_or_id": "pikachu"})
 
     assert result.is_error is True
-    assert "temporarily unavailable" in text_of(result)
+    assert text_of(result).endswith("HTTP 503. Try again in a few seconds.")
+
+
+async def test_a_permanent_failure_tells_the_model_not_to_retry(client, repository):
+    repository.fail_next(PokedexUnavailable("PokeAPI returned HTTP 418", retryable=False))
+
+    result = await client.call_tool("pokemon_get", {"name_or_id": "pikachu"})
+
+    assert "Retrying will not help" in text_of(result)

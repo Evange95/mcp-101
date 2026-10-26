@@ -92,12 +92,11 @@ async def test_a_sparse_payload_maps_missing_data_to_none_and_empty(repository, 
 async def test_list_digimon_sends_pagination_and_only_the_filters_set(repository, digiapi):
     route = digiapi.get("/digimon").respond(json=load_json("digimon_list.json", "digiapi"))
 
-    page = await repository.list_digimon(0, 3, DigimonFilter(name="mon", attribute="vaccine"))
+    page = await repository.list_digimon(0, 3, DigimonFilter(attribute="vaccine"))
 
     assert dict(route.calls.last.request.url.params) == {
         "page": "0",
         "pageSize": "3",
-        "name": "mon",
         "attribute": "vaccine",
     }
     assert page == DigimonPage(
@@ -115,7 +114,7 @@ async def test_list_digimon_sends_pagination_and_only_the_filters_set(repository
 async def test_an_empty_page_has_no_content_key_upstream(repository, digiapi):
     digiapi.get("/digimon").respond(json=load_json("digimon_list_empty.json", "digiapi"))
 
-    page = await repository.list_digimon(0, 20, DigimonFilter(name="zzzzz"))
+    page = await repository.list_digimon(0, 20, DigimonFilter(level="armor"))
 
     assert (page.total, page.items) == (0, ())
 
@@ -205,3 +204,31 @@ async def test_a_missing_token_file_is_unavailable_without_calling_digiapi(digia
             await DigiApiRepository(http).get_digimon("agumon")
 
     assert raised.value.retryable is False
+
+
+async def test_the_index_reads_every_page_of_names(repository, digiapi):
+    route = digiapi.get("/digimon")
+    route.side_effect = [
+        httpx.Response(
+            200,
+            json={
+                "content": [{"id": 1, "name": "Agumon"}],
+                "pageable": {"currentPage": 0, "totalElements": 2, "totalPages": 2},
+            },
+        ),
+        httpx.Response(
+            200,
+            json={
+                "content": [{"id": 202, "name": "War Greymon"}],
+                "pageable": {"currentPage": 1, "totalElements": 2, "totalPages": 2},
+            },
+        ),
+    ]
+
+    index = await repository.digimon_index()
+
+    assert index == (DigimonSummary(1, "Agumon"), DigimonSummary(202, "War Greymon"))
+    assert [dict(call.request.url.params) for call in route.calls] == [
+        {"page": "0", "pageSize": "5000"},
+        {"page": "1", "pageSize": "5000"},
+    ]

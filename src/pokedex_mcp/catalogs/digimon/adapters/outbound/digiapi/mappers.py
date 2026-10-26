@@ -49,10 +49,14 @@ def to_digimon(dto: DigimonDTO) -> Digimon:
     )
 
 
+def to_summaries(dto: DigimonListDTO) -> tuple[DigimonSummary, ...]:
+    return tuple(DigimonSummary(id=ref.id, name=ref.name) for ref in dto.content)
+
+
 def to_page(dto: DigimonListDTO, *, page: int, page_size: int) -> DigimonPage:
     return DigimonPage(
         total=dto.pageable.total_elements,
         page=page,
         page_size=page_size,
-        items=tuple(DigimonSummary(id=ref.id, name=ref.name) for ref in dto.content),
+        items=to_summaries(dto),
     )

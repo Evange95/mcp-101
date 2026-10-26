@@ -6,7 +6,12 @@ from tenacity.wait import wait_base
 
 from pokedex_mcp.catalogs.digimon.application.ports import DigimonRepository
 from pokedex_mcp.catalogs.digimon.domain.errors import DigimonUnavailable
-from pokedex_mcp.catalogs.digimon.domain.models import Digimon, DigimonFilter, DigimonPage
+from pokedex_mcp.catalogs.digimon.domain.models import (
+    Digimon,
+    DigimonFilter,
+    DigimonPage,
+    DigimonSummary,
+)
 from pokedex_mcp.platform.resilience.retry import RetryPolicy, RetryProbe
 
 
@@ -36,6 +41,9 @@ class RetryingDigimonRepository:
 
     async def get_digimon(self, key: str) -> Digimon:
         return await self._policy.call(lambda: self._inner.get_digimon(key))
+
+    async def digimon_index(self) -> tuple[DigimonSummary, ...]:
+        return await self._policy.call(self._inner.digimon_index)
 
     async def list_digimon(self, page: int, page_size: int, where: DigimonFilter) -> DigimonPage:
         return await self._policy.call(lambda: self._inner.list_digimon(page, page_size, where))

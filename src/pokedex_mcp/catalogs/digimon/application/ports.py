@@ -2,7 +2,12 @@
 
 from typing import Protocol
 
-from pokedex_mcp.catalogs.digimon.domain.models import Digimon, DigimonFilter, DigimonPage
+from pokedex_mcp.catalogs.digimon.domain.models import (
+    Digimon,
+    DigimonFilter,
+    DigimonPage,
+    DigimonSummary,
+)
 
 
 class DigimonRepository(Protocol):
@@ -13,6 +18,10 @@ class DigimonRepository(Protocol):
     """
 
     async def get_digimon(self, key: str) -> Digimon: ...
+
+    async def digimon_index(self) -> tuple[DigimonSummary, ...]:
+        """Every Digimon name and id: for resolving and suggesting names. Cache it long."""
+        ...
 
     async def list_digimon(
         self, page: int, page_size: int, where: DigimonFilter
