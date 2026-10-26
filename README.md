@@ -1000,9 +1000,16 @@ setup and tests. It needs this server running.
 
 ## Security
 
-`/mcp` has no authentication and is meant for localhost / trusted networks only.
+`/mcp` has no authentication and is meant for localhost / trusted networks only. In
+Kubernetes it is reachable by anything in the cluster that can reach the Service: put a
+NetworkPolicy in front of it, or an authenticating gateway. The demo agent's role policy
+(`agent/`) only restrains that agent; it is not an authorization layer (see its README).
+Inbound authentication (OAuth / bearer tokens, as the MCP specification describes for
+servers acting as resource servers) is the next step if the server is shared.
 `docker compose` binds it to `127.0.0.1`, not all interfaces. `POKEDEX_ALLOWED_HOSTS`
 only extends which `Host` headers `/mcp` accepts — it does not authorize browser
 `Origin` headers, since browser-based MCP clients are out of scope. Input names/ids
 accept letters, digits, spaces and hyphens; accents, apostrophes and dots are
-normalized away (e.g. `Flabébé` -> `flabebe`, `Mr. Mime` -> `mr-mime`).
+normalized away (e.g. `Flabébé` -> `flabebe`, `Mr. Mime` -> `mr-mime`). Digimon names
+keep spaces and parentheses but refuse `/ \ ? # %`, so no input can change the upstream
+path or query.

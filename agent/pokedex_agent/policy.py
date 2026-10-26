@@ -1,4 +1,9 @@
-"""Tool-access policy loaded from policy.yaml. Pure logic: no SDK, no network."""
+"""Tool-access policy loaded from policy.yaml. Pure logic: no SDK, no network.
+
+This is a guard on what the agent *asks for*, not an authorization boundary: it sees only
+the tool arguments, and anyone who reaches the MCP endpoint without this agent bypasses it.
+Real access control belongs on the server (see the README, "Policy").
+"""
 
 import re
 import unicodedata
@@ -14,11 +19,16 @@ POKEMON_ARGUMENTS = ("name_or_id",)
 
 
 def normalize_name(raw: str | int) -> str:
-    """Normalize a Pokémon name the way the MCP server does ("Mr. Mime" -> "mr-mime")."""
-    text = unicodedata.normalize("NFKD", str(raw).strip().lower())
+    """Normalize a Pokémon name the way the MCP server does ("Mr. Mime" -> "mr-mime").
+
+    A copy of the server's `normalize_key` (the agent is a separate project): keep the two
+    in sync, `tests/test_policy.py` pins the cases that matter.
+    """
+    text = str(raw).replace("\u2640", "-f").replace("\u2642", "-m")
+    text = unicodedata.normalize("NFKD", text.strip().lower())
     text = "".join(ch for ch in text if not unicodedata.combining(ch))
     text = re.sub("['\u2019.:]", "", text)
-    return "-".join(text.split())
+    return re.sub("-{2,}", "-", "-".join(text.split()))
 
 
 @dataclass(frozen=True)
@@ -40,10 +50,19 @@ class Rule:
         if role not in self.roles or tool not in self.tools:
             return False
         return any(
-            normalize_name(tool_input[arg]) in self.pokemon
+            self._covers(normalize_name(tool_input[arg]))
             for arg in POKEMON_ARGUMENTS
             if arg in tool_input
         )
+
+    def _covers(self, key: str) -> bool:
+        """The Pokémon itself, by name or National Dex number, or any of its forms
+        ("mewtwo-mega-x", "kyogre-primal", "deoxys-attack"), which PokeAPI names with a
+        dashed suffix. Forms also have their own numeric ids (10001+), which this cannot
+        know: a known gap of a client-side guard."""
+        if key in self.pokemon:
+            return True
+        return any(key.startswith(f"{name}-") for name in self.pokemon if not name.isdigit())
 
 
 @dataclass(frozen=True)

@@ -27,13 +27,22 @@ def policy(tmp_path: Path) -> Policy:
 
 @pytest.mark.parametrize(
     ("raw", "expected"),
-    [("  Mewtwo ", "mewtwo"), ("Mr. Mime", "mr-mime"), ("Flabébé", "flabebe"), (150, "150")],
+    [
+        ("  Mewtwo ", "mewtwo"),
+        ("Mr. Mime", "mr-mime"),
+        ("Flabébé", "flabebe"),
+        (150, "150"),
+        ("Nidoran\u2640", "nidoran-f"),
+        ("nidoran \u2642", "nidoran-m"),
+    ],
 )
 def test_normalize_name_matches_pokeapi_slugs(raw: str | int, expected: str) -> None:
     assert normalize_name(raw) == expected
 
 
-@pytest.mark.parametrize("pokemon", ["Mewtwo", "mewtwo", 150, "150", " LUGIA "])
+@pytest.mark.parametrize(
+    "pokemon", ["Mewtwo", "mewtwo", 150, "150", " LUGIA ", "mewtwo-mega-x", "Mewtwo Mega Y"]
+)
 def test_trainer_is_denied_legendary_details(policy: Policy, pokemon: str | int) -> None:
     decision = policy.evaluate("trainer", "mcp__monsterdex__pokemon_get", {"name_or_id": pokemon})
 
@@ -48,6 +57,15 @@ def test_rule_also_covers_the_evolution_chain_argument(policy: Policy) -> None:
     )
 
     assert decision.allowed is False
+
+
+@pytest.mark.parametrize("pokemon", ["mew", "mewtwos", "lugiax"])
+def test_a_name_that_only_begins_like_a_legendary_is_not_a_form(
+    policy: Policy, pokemon: str
+) -> None:
+    decision = policy.evaluate("trainer", "mcp__monsterdex__pokemon_get", {"name_or_id": pokemon})
+
+    assert decision.allowed is True
 
 
 def test_trainer_may_look_up_regular_pokemon(policy: Policy) -> None:

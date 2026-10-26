@@ -19,8 +19,16 @@ control, auditing and measurable evaluation.
 - **Roles and policy.** The role (`trainer` or `professor`) comes from
   `POKEDEX_AGENT_ROLE`. A `PreToolUse` hook checks every call against
   [`policy.yaml`](policy.yaml): for example, a `trainer` cannot request detailed data
-  on legendary or mythical Pokémon. A denied call is not a crash: the reason goes back
-  to the model, which tells the user.
+  on legendary or mythical Pokémon, nor on their forms (`mewtwo-mega-x`,
+  `kyogre-primal`: any name that is a listed one plus a dashed suffix). A denied call is
+  not a crash: the reason goes back to the model, which tells the user.
+- **What the policy is not.** It is a guard on what *this agent* asks for, not access
+  control. It sees only the tool arguments: a form requested by its numeric id (10001+)
+  is not recognized, and any client that reaches the MCP endpoint directly bypasses it.
+  If roles must really be enforced, authorization belongs on the server (an authenticated
+  `/mcp` with a role claim, checked against `is_legendary` in the *result*). The name
+  normalization in `policy.py` is a copy of the server's; `tests/test_policy.py` pins the
+  cases (`Mr. Mime`, `Nidoran♀`, ...) that must stay in sync.
 - **Audit.** Every call is appended to `logs/audit.jsonl` with timestamp, session,
   role, tool, parameters, decision (`allow`/`deny`), matched rule and duration in ms.
 
