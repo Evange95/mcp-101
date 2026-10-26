@@ -61,7 +61,7 @@ class DigimonModule:
     instructions = INSTRUCTIONS
 
     def __init__(self, settings: Settings, platform: Platform) -> None:
-        probes = build_probes(platform.telemetry)
+        probes = build_probes(platform)
         self._tokens = build_token_provider(settings, platform)
         self._http = platform.http_client(
             base_url=settings.digimon_base_url,

@@ -4,10 +4,8 @@ import pytest
 
 from pokedex_mcp.catalogs.pokedex.adapters.outbound.telemetry.fanout import FanOutPokedexProbe
 from pokedex_mcp.catalogs.pokedex.adapters.outbound.telemetry.log import (
-    LoggingCacheProbe,
     LoggingPokeApiProbe,
     LoggingPokedexProbe,
-    LoggingRetryProbe,
 )
 from pokedex_mcp.catalogs.pokedex.application.use_cases import PokedexService
 from pokedex_mcp.catalogs.pokedex.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
@@ -30,9 +28,10 @@ async def test_a_found_lookup_logs_at_debug_with_structured_fields(caplog):
         ("DEBUG", "pokemon 'Pikachu' found"),
     ]
     found = caplog.records[-1]
-    assert found.name == "pokedex_mcp.lookups"
-    assert vars(found)["pokedex.lookup"] == "pokemon"
-    assert vars(found)["pokedex.outcome"] == "found"
+    assert found.name == "pokedex_mcp.pokedex.lookups"
+    assert vars(found)["catalog.name"] == "pokedex"
+    assert vars(found)["catalog.lookup"] == "pokemon"
+    assert vars(found)["catalog.outcome"] == "found"
 
 
 async def test_failed_lookups_log_at_a_level_matching_their_severity(caplog):
@@ -55,19 +54,15 @@ async def test_failed_lookups_log_at_a_level_matching_their_severity(caplog):
     ]
 
 
-def test_adapter_probes_log_retries_and_unexpected_payloads(caplog):
+def test_the_pokeapi_probe_logs_unexpected_payloads(caplog):
     caplog.set_level(logging.DEBUG, logger="pokedex_mcp")
 
-    LoggingCacheProbe().miss("pokemon", expired=True)
-    LoggingRetryProbe().retry_scheduled(attempt=1, reason="HTTP 503", wait_seconds=0.25)
     LoggingPokeApiProbe().unexpected_payload("Move", "move/x", ValueError("bad"))
 
     assert [(r.name, r.levelname, r.getMessage()) for r in caplog.records] == [
-        ("pokedex_mcp.cache", "DEBUG", "cache miss for pokemon"),
-        ("pokedex_mcp.retry", "WARNING", "attempt 1 failed (HTTP 503), retrying in 0.25s"),
-        ("pokedex_mcp.pokeapi", "WARNING", "unexpected PokeAPI payload for move/x: bad"),
+        ("pokedex_mcp.pokedex.pokeapi", "WARNING", "unexpected PokeAPI payload for move/x: bad"),
     ]
-    assert vars(caplog.records[0])["pokedex.cache.result"] == "expired"
+    assert vars(caplog.records[0])["catalog.resource"] == "Move"
 
 
 async def test_fan_out_forwards_every_announcement_to_each_probe():

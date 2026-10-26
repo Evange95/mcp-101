@@ -25,7 +25,7 @@ class LoggingLifecycleProbe:
             previous,
             current,
             reason,
-            extra={"pokedex.lifecycle.phase": str(current), "pokedex.lifecycle.reason": reason},
+            extra={"lifecycle.phase": str(current), "lifecycle.reason": reason},
         )
 
 

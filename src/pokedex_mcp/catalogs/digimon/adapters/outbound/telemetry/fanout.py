@@ -1,4 +1,7 @@
-"""Composite probes forwarding every announcement to several adapters (e.g. logs + OTel)."""
+"""Composite Digimon probes forwarding every announcement to several adapters (logs + OTel).
+
+Cache and retry fan-outs are generic: `platform/telemetry/resilience.py`.
+"""
 
 from collections.abc import Generator
 from contextlib import ExitStack, contextmanager
@@ -7,8 +10,6 @@ from typing import TYPE_CHECKING
 from pokedex_mcp.catalogs.digimon.adapters.outbound.probes import DigiApiProbe
 from pokedex_mcp.catalogs.digimon.application.probes import DigimonProbe, Lookup, LookupProbe
 from pokedex_mcp.catalogs.digimon.domain.errors import DigimonUnavailable, InvalidQuery, NotFound
-from pokedex_mcp.platform.resilience.cache import CacheProbe
-from pokedex_mcp.platform.resilience.retry import RetryProbe
 
 
 class _FanOutLookupProbe:
@@ -48,32 +49,6 @@ class FanOutDigimonProbe:
             )
 
 
-class FanOutCacheProbe:
-    def __init__(self, *probes: CacheProbe) -> None:
-        self._probes = probes
-
-    def hit(self, resource: str) -> None:
-        for probe in self._probes:
-            probe.hit(resource)
-
-    def miss(self, resource: str, *, expired: bool) -> None:
-        for probe in self._probes:
-            probe.miss(resource, expired=expired)
-
-    def evicted(self, resource: str) -> None:
-        for probe in self._probes:
-            probe.evicted(resource)
-
-
-class FanOutRetryProbe:
-    def __init__(self, *probes: RetryProbe) -> None:
-        self._probes = probes
-
-    def retry_scheduled(self, *, attempt: int, reason: str, wait_seconds: float) -> None:
-        for probe in self._probes:
-            probe.retry_scheduled(attempt=attempt, reason=reason, wait_seconds=wait_seconds)
-
-
 class FanOutDigiApiProbe:
     def __init__(self, *probes: DigiApiProbe) -> None:
         self._probes = probes
@@ -86,6 +61,4 @@ class FanOutDigiApiProbe:
 if TYPE_CHECKING:
     _lookup_probe: type[LookupProbe] = _FanOutLookupProbe
     _digimon: type[DigimonProbe] = FanOutDigimonProbe
-    _cache: type[CacheProbe] = FanOutCacheProbe
-    _retry: type[RetryProbe] = FanOutRetryProbe
     _digiapi: type[DigiApiProbe] = FanOutDigiApiProbe

@@ -65,7 +65,7 @@ Inside each catalog (paths below are relative to `catalogs/pokedex/`), hexagonal
   checked in `main.build_modules`), so enabling it is a config change, not a deploy.
 - `catalogs/digimon/` mirrors `catalogs/pokedex/` file for file (domain, application,
   `adapters/outbound/{digiapi,cache.py,retry.py,probes.py,telemetry}`, `adapters/inbound/mcp`,
-  `module.py`). Its errors, probes and `digimon.*` telemetry are duplicated on purpose;
+  `module.py`). Its errors and lookup/upstream probes are duplicated on purpose;
   never import Pokédex code from it or vice versa. digi-api quirks the adapter relies on:
   unknown Digimon = HTTP 400 with "not found" in `message`; names keep spaces (keys are
   lowercased and whitespace-collapsed, never dashed); empty pages omit `content`; unknown
@@ -130,26 +130,40 @@ for the full catalogue of spans, metrics and logs.
   repository adapters. Announce the event through a probe method named in business
   language (`not_found`, `retry_scheduled`, `hit`). Do not use technical names like
   `log_warning` or `increment_counter`.
-- Probe ports: `catalogs/pokedex/application/probes.py` (core), `catalogs/pokedex/adapters/outbound/probes.py` (PokeAPI
-  adapter), `platform/resilience/{cache,retry}.py` (`CacheProbe`, `RetryProbe`: generic, no
+- Probe ports: `catalogs/<name>/application/probes.py` (core),
+  `catalogs/<name>/adapters/outbound/probes.py` (upstream adapter), `platform/resilience/{cache,retry}.py` (`CacheProbe`, `RetryProbe`: generic, no
   domain types — e.g. `retry_scheduled` takes a `reason: str`, not a domain error).
   Every probe has a `Null…` implementation used as the default constructor argument.
-- Pokédex probe implementations live in `catalogs/pokedex/adapters/outbound/telemetry/`: `log.py` (stdlib
-  logging, always on), `otel.py` (OpenTelemetry spans and metrics), `fanout.py` (both at
-  once), `probes.py` (`build_probes`). The SDK bootstrap (`Telemetry`) is in
-  `platform/telemetry/sdk.py`.
-- `PokedexService._observed` reports **exactly one outcome per lookup**. Only
+- A catalog's lookup and upstream probe implementations live in
+  `catalogs/<name>/adapters/outbound/telemetry/`: `log.py` (stdlib logging, always on),
+  `otel.py` (OpenTelemetry spans and metrics), `fanout.py` (both at once), `probes.py`
+  (`build_probes(platform)`). Cache and retry probe implementations are generic and live
+  once in `platform/telemetry/resilience.py`; catalogs get them from
+  `Platform.cache_probe(name)` / `retry_probe(name)`, never reimplement them. The SDK
+  bootstrap (`Telemetry`) is in `platform/telemetry/sdk.py`.
+- **Shared telemetry names.** Every attribute, span event and metric a catalog emits uses
+  a constant from `platform/telemetry/names.py` (`catalog.lookups`, `catalog.outcome`, ...)
+  and carries `catalog.name` (`"pokedex"`, `"digimon"`). Never introduce a per-catalog
+  prefix (`pokedex.lookups`): dashboards query one name and split by `catalog.name`.
+  Only span names (`pokedex.lookup pokemon`) and logger names
+  (`pokedex_mcp.<catalog>.lookups`) name the catalog. `tests/unit/test_telemetry_names.py`
+  checks that all catalogs emit the same metric names and attribute keys: add a new
+  catalog to it.
+- The service's `_observed` (`PokedexService`, `DigimonService`) reports **exactly one
+  outcome per lookup**. Only
   `source_unavailable` and unexpected exceptions are span errors. `not_found` and
   `query_rejected` are normal answers and must not set `StatusCode.ERROR`.
-- Metric attributes must be low-cardinality (`pokedex.lookup`, `pokedex.outcome`,
-  `pokedex.resource`, `pokedex.cache.result`). User queries and keys go on spans and logs
-  only.
-- Log fields go in `extra` with a `pokedex.` prefix (they become OTLP log attributes).
+- Metric attributes must be low-cardinality (`catalog.name`, `catalog.lookup`,
+  `catalog.outcome`, `catalog.resource`, `catalog.cache.result`). User queries and keys go
+  on spans and logs only.
+- Log fields go in `extra` under the same `names.py` constants as the span attributes
+  (they become OTLP log attributes).
 - `Telemetry.install()` sets global providers, which is allowed **once per process**. The MCP
   SDK emits `tools/call ...` spans through the global tracer. `run()` owns the
   telemetry lifecycle; `create_app(settings, telemetry)` only instruments.
-- To add an announcement: protocol method + `Null` → call site → `log.py` + `otel.py` +
-  `fanout.py` → recording double in `tests/fakes.py` → tests → README tables.
+- To add an announcement: protocol method + `Null` → call site → name in `names.py` →
+  `log.py` + `otel.py` + `fanout.py` (every catalog that announces it) → recording double
+  in `tests/fakes.py` / `tests/<name>/fakes.py` → tests → README tables.
 
 ## Testing conventions
 

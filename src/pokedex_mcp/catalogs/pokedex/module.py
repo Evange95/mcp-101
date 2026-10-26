@@ -42,7 +42,7 @@ class PokedexModule:
     instructions = INSTRUCTIONS
 
     def __init__(self, settings: Settings, platform: Platform) -> None:
-        probes = build_probes(platform.telemetry)
+        probes = build_probes(platform)
         self._http = platform.http_client(
             base_url=settings.pokeapi_base_url,
             timeout=settings.http_timeout_seconds,

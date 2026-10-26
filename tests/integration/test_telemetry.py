@@ -83,7 +83,7 @@ def test_a_tool_call_is_traced_from_http_down_to_pokeapi(http):
     assert parent_id(tool) == context(server).span_id
     assert parent_id(lookup) == context(tool).span_id
     assert parent_id(outgoing) == context(lookup).span_id
-    assert attributes(lookup)["pokedex.cache.result"] == "miss"
+    assert attributes(lookup)["catalog.cache.result"] == "miss"
     assert attributes(outgoing)["http.status_code"] == 200
     assert not [name for name in spans if name.endswith(("http receive", "http send"))]
 
@@ -95,7 +95,7 @@ def test_probe_logs_are_exported_and_correlated_with_the_trace(http, telemetry, 
         call_tool(http, "pokemon_get_type", {"name_or_id": "shadow"})
 
     lookup = next(s for s in SPANS.get_finished_spans() if s.name == "pokedex.lookup type")
-    assert attributes(lookup)["pokedex.outcome"] == "not_found"
+    assert attributes(lookup)["catalog.outcome"] == "not_found"
 
     telemetry.logger_provider.force_flush()
     (record,) = [
@@ -104,4 +104,4 @@ def test_probe_logs_are_exported_and_correlated_with_the_trace(http, telemetry, 
         if log.log_record.body == "type 'shadow' not found"
     ]
     assert record.trace_id == context(lookup).trace_id
-    assert attributes(record)["pokedex.outcome"] == "not_found"
+    assert attributes(record)["catalog.outcome"] == "not_found"

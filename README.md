@@ -103,7 +103,7 @@ src/pokedex_mcp/
       application/            DigimonRepository port, DigimonProbe, DigimonService
       adapters/inbound/mcp/   DigimonTools (`digimon_*`) and output schemas
       adapters/outbound/      digiapi/ (client, DTOs, mappers), cache.py, retry.py, probes.py,
-                              telemetry/ (logs, OTel, fan-out with `digimon.*` names)
+                              telemetry/ (logs, OTel, fan-out; shared `catalog.*` names)
       module.py               DigimonModule: token provider, HTTP client, readiness checks
   platform/                   infrastructure shared by every catalog; imports no catalog
     lifecycle.py              Lifecycle phases (starting → ready → draining → stopping)
@@ -114,6 +114,8 @@ src/pokedex_mcp/
     telemetry/sdk.py          Telemetry: OTel providers, OTLP exporters, instrumentation
     telemetry/log.py          configure_logging(), LoggingLifecycleProbe, LoggingTokenProbe
     telemetry/otel.py         OtelTokenProbe, FanOutTokenProbe (platform-level OTel probes)
+    telemetry/names.py        every `catalog.*` attribute, event and metric name
+    telemetry/resilience.py   log/OTel/fan-out CacheProbe and RetryProbe for any catalog
     upstream/auth.py          service access tokens: StaticTokenProvider, FileTokenProvider,
                               BearerAuth (httpx), TokenProbe, TokenUnavailable
     resilience/cache.py       TtlLruCache + CacheProbe: TTL + LRU cache for any async loader
@@ -199,10 +201,12 @@ POKEDEX_DIGIMON_ENABLED=true uv run pokedex-mcp
   `EvolutionChain`. Digimon digivolve from and into many others, and the paths form a
   graph, so the domain has `prior_evolutions` / `next_evolutions` of `Digivolution(id,
   name, condition)` instead. That is why there is no shared "Monster" model.
-- **Its own errors, probes and telemetry**, duplicated on purpose. `DigimonUnavailable`,
-  `DigimonProbe` and the `digimon.*` signals (see Observability) mirror the Pokédex ones,
-  but neither catalog imports the other. Only the mechanisms (`TtlLruCache`,
-  `RetryPolicy`, `BearerAuth`) are shared, from `platform/`.
+- **Its own errors and probes**, duplicated on purpose. `DigimonUnavailable` and
+  `DigimonProbe` mirror the Pokédex ones, but neither catalog imports the other. What is
+  shared comes from `platform/`: the mechanisms (`TtlLruCache`, `RetryPolicy`,
+  `BearerAuth`), the cache and retry probes, and the telemetry names. So Digimon emits
+  the same `catalog.*` signals as the Pokédex, with `catalog.name="digimon"` (see
+  Observability).
 - **The service token is optional.** digi-api.com is public. The catalog sends a token
   only when one is configured, because the same adapter is meant to work with an internal
   mirror or a gateway that does require one (see Upstream authentication). The
@@ -277,10 +281,10 @@ Pokédex probes, in `catalogs/pokedex/adapters/outbound/telemetry/`:
 | `log.py` | `Logging*Probe`: structured stdlib log records. **Always on.** |
 | `otel.py` | `Otel*Probe`: OpenTelemetry spans and metrics. On with `POKEDEX_TELEMETRY_ENABLED=true`. |
 | `fanout.py` | `FanOut*Probe`: forwards every announcement to several probes (logs + OTel). |
-| `probes.py` | `build_probes(telemetry)`: logs only when telemetry is `None`, logs + OTel otherwise. |
+| `probes.py` | `build_probes(platform)`: the lookup and PokeAPI probes (logs only when telemetry is off, logs + OTel otherwise), plus the platform's cache and retry probes for `catalog.name="pokedex"`. |
 
-Digimon probes, in `catalogs/digimon/adapters/outbound/telemetry/`: the same four modules,
-emitting the `digimon.*` names listed under Traces, Metrics and Logs.
+Digimon probes, in `catalogs/digimon/adapters/outbound/telemetry/`: the same four modules
+for `DigimonProbe` and `DigiApiProbe`.
 
 Shared by every catalog, in `platform/telemetry/`:
 
@@ -288,6 +292,8 @@ Shared by every catalog, in `platform/telemetry/`:
 |---|---|
 | `sdk.py` | `Telemetry`: tracer/meter/logger providers, OTLP/HTTP exporters, FastAPI + httpx instrumentation, stdlib logging → OTel logs bridge. |
 | `log.py` | `configure_logging()` for the console and `LoggingLifecycleProbe`. |
+| `names.py` | every `catalog.*` attribute, event and metric name. Catalog adapters import them; none spells its own. |
+| `resilience.py` | `Logging/Otel/FanOut` `CacheProbe` and `RetryProbe`, built with the catalog's name. `Platform.cache_probe(catalog)` / `retry_probe(catalog)` hand them out. |
 
 Wiring happens only in `main.py`: `run()` creates `Telemetry.otlp()` when enabled,
 `install()`s it as the global provider (once per process — the MCP SDK emits its own spans
@@ -309,26 +315,25 @@ POST                                     FastAPI server span (named "POST": /mcp
 `pokemon_get_evolution_chain` nests a `pokedex.lookup species` span inside
 `pokedex.lookup evolution_chain`, because it resolves the chain id through the species.
 
-Lookup span attributes and events:
+The span name keeps the catalog (`pokedex.lookup pokemon`, `digimon.lookup digimon`), so a
+trace reads at a glance. Everything you query or filter on is an attribute with a shared
+name, the same for every catalog:
 
 | Attribute / event | Meaning |
 |---|---|
-| `pokedex.lookup` | which lookup (`pokemon`, `species`, ...) |
-| `pokedex.query` | raw user input, truncated to 100 characters |
-| `pokedex.key` | normalized key sent to PokeAPI (e.g. `Mr. Mime` → `mr-mime`) |
-| `pokedex.outcome` | `found`, `not_found`, `rejected`, `unavailable` or `error` |
-| `pokedex.resource` | on `not_found`: the missing resource (`Pokémon`, `Evolution chain`, ...) |
-| `pokedex.rejection` | on `rejected`: why the query was invalid |
-| `pokedex.retryable` | on `unavailable`: whether retrying could help |
-| `pokedex.cache.result` | `hit`, `miss` or `expired`, set by the cache probe |
+| `catalog.name` | which catalog: `pokedex`, `digimon` |
+| `catalog.lookup` | which lookup: `pokemon`, `species`, `pokemon_list`, `type`, `evolution_chain`, `move` (Pokédex); `digimon`, `digimon_list`, `digivolutions` (Digimon) |
+| `catalog.query` | raw user input, truncated to 100 characters |
+| `catalog.key` | normalized key sent upstream (`Mr. Mime` → `mr-mime`, `War Greymon` → `war greymon`) |
+| `catalog.outcome` | `found`, `not_found`, `rejected`, `unavailable` or `error` |
+| `catalog.resource` | on `not_found`: the missing resource (`Pokémon`, `Evolution chain`, `Digimon`, ...) |
+| `catalog.rejection` | on `rejected`: why the query was invalid |
+| `catalog.retryable` | on `unavailable`: whether retrying could help |
+| `catalog.cache.result` | `hit`, `miss` or `expired`, set by the cache probe |
 | `error.type` | on `error`: exception class of an unexpected failure |
-| event `pokedex.retry` | one per retry: attempt, wait seconds, reason |
-| event `pokedex.pokeapi.unexpected_payload` | PokeAPI answered with a payload that does not match the schema |
+| event `catalog.retry` | one per retry: `catalog.retry.attempt`, `.wait_seconds`, `.reason` |
+| event `catalog.upstream.unexpected_payload` | the upstream answered with a payload that does not match the schema (`url.path`, `catalog.resource`) |
 | event `exception` | on `unavailable` / `error` |
-
-A Digimon tool call has the same tree with `digimon.lookup digimon` (or `digimon_list`,
-`digivolutions`) and the same attributes with a `digimon.` prefix (`digimon.key`,
-`digimon.outcome`, ...); its adapter event is `digimon.digiapi.unexpected_payload`.
 
 **Span status.** Only `unavailable` and `error` set the span status to `ERROR`. A Pokémon that
 does not exist or an invalid query is a normal answer to the caller, not a fault of the
@@ -343,47 +348,59 @@ stable names (`http.response.status_code`, ...).
 
 | Metric | Type | Attributes |
 |---|---|---|
-| `pokedex.lookups` | counter | `pokedex.lookup`, `pokedex.outcome` |
-| `pokedex.lookup.duration` (s) | histogram | `pokedex.lookup`, `pokedex.outcome` |
-| `pokedex.cache.requests` | counter | `pokedex.resource`, `pokedex.cache.result` (`hit`, `miss`, `expired`) |
-| `pokedex.cache.evictions` | counter | `pokedex.resource` |
-| `pokedex.source.retries` | counter | — |
-| `pokedex.pokeapi.unexpected_payloads` | counter | `pokedex.resource` |
-| `digimon.lookups`, `digimon.lookup.duration` (s) | counter, histogram | `digimon.lookup`, `digimon.outcome` |
-| `digimon.cache.requests`, `digimon.cache.evictions` | counter | `digimon.resource` (`digimon`, `list`), `digimon.cache.result` |
-| `digimon.source.retries` | counter | — |
-| `digimon.digiapi.unexpected_payloads` | counter | `digimon.resource` |
+| `catalog.lookups` | counter | `catalog.name`, `catalog.lookup`, `catalog.outcome` |
+| `catalog.lookup.duration` (s) | histogram | `catalog.name`, `catalog.lookup`, `catalog.outcome` |
+| `catalog.cache.requests` | counter | `catalog.name`, `catalog.resource`, `catalog.cache.result` (`hit`, `miss`, `expired`) |
+| `catalog.cache.evictions` | counter | `catalog.name`, `catalog.resource` |
+| `catalog.source.retries` | counter | `catalog.name` |
+| `catalog.upstream.unexpected_payloads` | counter | `catalog.name`, `catalog.resource` |
 | `upstream.token.loads` | counter | `upstream.name` — first read and every rotation picked up |
 | `upstream.token.rejections` | counter | `upstream.name`, `upstream.token.retried` — **alert on this**: the upstream refuses our token |
 | `upstream.token.unavailable` | counter | `upstream.name` — the token file is missing, unreadable or empty |
 
-The Digimon metrics are separate names, not a `catalog` attribute on the Pokédex ones, so
-existing Pokédex dashboards are untouched. Merging both into `catalog.*` metrics is a
-planned, breaking change of its own.
+**One name per signal, `catalog.name` to tell catalogs apart.** A dashboard panel shows
+every catalog with one query, and a new catalog appears in it with no dashboard change.
+In Prometheus (dots become underscores, counters get `_total`):
+
+```promql
+sum by (catalog_name, catalog_outcome) (rate(catalog_lookups_total[5m]))       # traffic by outcome
+sum by (catalog_name) (rate(catalog_lookups_total{catalog_outcome=~"unavailable|error"}[5m]))
+  / sum by (catalog_name) (rate(catalog_lookups_total[5m]))                     # error rate
+sum by (catalog_name) (rate(catalog_cache_requests_total{catalog_cache_result="hit"}[5m]))
+  / sum by (catalog_name) (rate(catalog_cache_requests_total[5m]))              # cache hit ratio
+histogram_quantile(0.95, sum by (catalog_name, le) (rate(catalog_lookup_duration_seconds_bucket[5m])))
+```
+
+Add `{catalog_name="digimon"}` to look at one catalog. `tests/unit/test_telemetry_names.py`
+checks that the Pokédex and Digimon adapters emit the same metric names with the same
+attribute keys, so these queries stay valid for both.
+
+These names replaced `pokedex.*` / `digimon.*` (and the `pokedex.*` attributes on spans
+and logs) in one breaking change. Dashboards or alerts written against the old names must
+be updated: `pokedex_lookups_total` becomes `catalog_lookups_total{catalog_name="pokedex"}`.
 
 Plus the standard HTTP server/client metrics from the FastAPI and httpx instrumentation.
 Metric attributes are deliberately **low-cardinality**: user queries and keys live only on
-spans and logs, never on metrics. Useful queries: hit ratio =
-`cache.requests{result="hit"} / cache.requests`; error rate =
-`lookups{outcome="unavailable"|"error"} / lookups`. Metrics are exported every 60 s
+spans and logs, never on metrics. Metrics are exported every 60 s
 (`OTEL_METRIC_EXPORT_INTERVAL`, in ms, to change it).
 
 ### Logs
 
 | Logger | Level | When |
 |---|---|---|
-| `pokedex_mcp.lookups` | DEBUG | query normalized, lookup found |
-| `pokedex_mcp.lookups` | INFO | not found, query rejected |
-| `pokedex_mcp.lookups` | WARNING | data source unavailable |
-| `pokedex_mcp.cache` | DEBUG | hit, miss, expired, evicted |
-| `pokedex_mcp.retry` | WARNING | a transient failure will be retried |
-| `pokedex_mcp.pokeapi` | WARNING | unexpected PokeAPI payload |
-| `pokedex_mcp.digimon.lookups`, `.digimon.cache`, `.digimon.retry`, `.digimon.digiapi` | as above | the same events for Digimon, fields prefixed `digimon.` |
+| `pokedex_mcp.pokedex.lookups`, `pokedex_mcp.digimon.lookups` | DEBUG | query normalized, lookup found |
+| same | INFO | not found, query rejected |
+| same | WARNING | data source unavailable |
+| `pokedex_mcp.cache` | DEBUG | hit, miss, expired, evicted (any catalog; the message names it) |
+| `pokedex_mcp.retry` | WARNING | a transient failure will be retried (any catalog) |
+| `pokedex_mcp.pokedex.pokeapi`, `pokedex_mcp.digimon.digiapi` | WARNING | unexpected upstream payload |
 | `pokedex_mcp.upstream.auth` | INFO | access token loaded or rotation picked up |
 | `pokedex_mcp.upstream.auth` | ERROR | token rejected by the upstream (401), or no token available |
 
-Records carry structured fields in `extra` (`pokedex.lookup`, `pokedex.query`,
-`pokedex.outcome`, `pokedex.cache.result`, ...). On the console (`uv run pokedex-mcp`)
+Records carry structured fields in `extra` with the same names as the span attributes
+(`catalog.name`, `catalog.lookup`, `catalog.query`, `catalog.outcome`,
+`catalog.cache.result`, ...); lifecycle records carry `lifecycle.phase` and
+`lifecycle.reason`. On the console (`uv run pokedex-mcp`)
 third-party libraries log at WARNING and `pokedex_mcp.*` at `POKEDEX_LOG_LEVEL`. With
 telemetry on, every record that reaches the root logger is also exported over OTLP, with
 those fields as attributes and the `trace_id` / `span_id` of the active span, so in Grafana
@@ -398,9 +415,10 @@ with Tempo (traces), Prometheus (metrics), Loki (logs) and Grafana at
 http://localhost:3000 (admin/admin). Call a tool, then in Grafana → *Explore*:
 
 - **Tempo**: search for service `pokedex-mcp` to see the trace tree above;
-- **Prometheus**: e.g. `pokedex_lookups_total` or `pokedex_cache_requests_total`
-  (Prometheus converts dots to underscores and adds `_total` to counters);
-- **Loki**: `{service_name="pokedex-mcp"}`.
+- **Prometheus**: e.g. `catalog_lookups_total` or `catalog_cache_requests_total`, split by
+  `catalog_name` (Prometheus converts dots to underscores and adds `_total` to counters);
+- **Loki**: `{service_name="pokedex-mcp"}`, or `{service_name="pokedex-mcp"} | catalog_name="digimon"`
+  for one catalog.
 
 Running the server outside compose:
 
@@ -413,14 +431,19 @@ If no collector is reachable the server keeps working; the exporters only log wa
 
 ### Adding a new announcement
 
-1. Add a method in the business language to the probe protocol (`catalogs/pokedex/application/probes.py`
-   for the core, `catalogs/pokedex/adapters/outbound/probes.py` for the PokeAPI adapter,
+1. Add a method in the business language to the probe protocol (`catalogs/<name>/application/probes.py`
+   for the core, `catalogs/<name>/adapters/outbound/probes.py` for the upstream adapter,
    `platform/resilience/` for cache and retry) and to its `Null…` class.
 2. Call it from the code where the event happens. Nothing else in that code changes.
-3. Implement it in `log.py` (pick a level), `otel.py` (span attribute/event and/or metric,
-   low-cardinality attributes only) and `fanout.py`.
+3. Add any new attribute, event or metric name to `platform/telemetry/names.py`, then
+   implement the announcement in `log.py` (pick a level), `otel.py` (span attribute/event
+   and/or metric, low-cardinality attributes only, always with `catalog.name`) and
+   `fanout.py` — of every catalog that announces it, or once in
+   `platform/telemetry/resilience.py` for cache and retry.
 4. Record it in the test doubles in `tests/fakes.py` and assert it in the unit tests of the
-   code that announces it; test the OTel/log translation in `tests/unit/adapters/telemetry/`.
+   code that announces it; test the OTel/log translation in `tests/unit/adapters/telemetry/`
+   (Pokédex), `tests/unit/digimon/` or `tests/unit/platform/`. If it is a metric, extend
+   `tests/unit/test_telemetry_names.py`.
 5. Document it in the tables above.
 
 ## Upstream authentication (service access tokens)
@@ -556,7 +579,7 @@ starting ──▶ ready ──▶ draining ──▶ stopping
   Service would have no endpoints, and clients would get connection errors. Instead, a
   ready pod can still answer from its cache, and otherwise returns a clear MCP tool error
   ("Pokédex service temporarily unavailable"), which is visible in the
-  `pokedex.lookups{outcome="unavailable"}` metric.
+  `catalog.lookups{catalog.outcome="unavailable"}` metric.
 - **`GET /health`**: kept for existing callers (Docker `HEALTHCHECK`, scripts). It behaves
   exactly like `/livez`.
 
@@ -760,11 +783,12 @@ uv run pytest -m live                           # contract tests against the rea
 | `tests/integration/test_app.py`, `test_mcp_server.py` | full FastAPI + MCP app, tools end to end | HTTP mocked with `respx` |
 | `tests/integration/test_tools_documented.py` | the README tool table lists exactly the exposed tools | in-process MCP client |
 | `tests/integration/test_telemetry.py` | one tool call → one trace (HTTP → MCP → lookup → PokeAPI), logs correlated | in-memory exporters |
-| `tests/unit/platform` | lifecycle phases; drain logic of `GracefulServer`; `TtlLruCache` and `RetryPolicy` with plain values (no Pokédex types); token providers, `BearerAuth` 401 handling, no token leak in spans or logs; `Platform` HTTP clients and token probes | none (fake clock, temp files, `respx`) |
+| `tests/unit/platform` | lifecycle phases; drain logic of `GracefulServer`; `TtlLruCache` and `RetryPolicy` with plain values (no Pokédex types); cache and retry probes (`catalog.*` metrics, logs, fan-out); token providers, `BearerAuth` 401 handling, no token leak in spans or logs; `Platform` HTTP clients and token probes | none (fake clock, temp files, `respx`) |
 | `tests/unit/test_architecture.py` | layering: `platform/` imports no catalog, catalogs don't import each other, in each catalog `application/` imports no adapters or platform and `domain/` only the standard library | none (reads the source) |
 | `tests/integration/test_health.py` | `/livez` and `/readyz` in every phase, failing checks | in-process app |
 | `tests/integration/test_shutdown.py` | a real server process gets SIGTERM: drains, exits 0, flushes telemetry to a fake OTLP collector | localhost subprocess (~5 s) |
-| `tests/unit/digimon` | Digimon use cases (key normalization keeps spaces), cache and retry decorators, log and OTel probes with `digimon.*` names | none (fake repository, in-memory exporters) |
+| `tests/unit/digimon` | Digimon use cases (key normalization keeps spaces), cache and retry decorators, log and OTel probes with `catalog.name="digimon"` | none (fake repository, in-memory exporters) |
+| `tests/unit/test_telemetry_names.py` | Pokédex and Digimon emit the same metric names and attribute keys | in-memory exporters |
 | `tests/integration/digimon` | digi-api client against recorded payloads (400 = not found, HTML page, empty page, token sent, 401/403 not retried, missing token file); `digimon_*` tools; the feature flag and the readiness checks it adds | HTTP mocked with `respx`, in-process MCP client and app |
 | `tests/live` | real PokeAPI and digi-api still match our DTOs | network, opt-in |
 
@@ -851,7 +875,7 @@ check (`_cache: type[CacheProbe] = ...`, `_retry: ...`), because mypy rejects re
   `POKEDEX_RETRY_ATTEMPTS=1` and `POKEDEX_CACHE_TTL_SECONDS` to make failures and expiry
   visible quickly.
 - With the LGTM stack, open a trace in Tempo to see whether time went into the cache, the
-  retries (`pokedex.retry` events) or PokeAPI (the `GET` span).
+  retries (`catalog.retry` events) or the upstream (the `GET` span).
 
 The demo agent in [`agent/`](agent/README.md) is a separate uv project with its own
 setup and tests. It needs this server running.

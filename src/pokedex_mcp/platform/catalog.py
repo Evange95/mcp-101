@@ -15,8 +15,18 @@ import httpx
 from mcp.server import MCPServer
 
 from pokedex_mcp.platform.health import ReadinessCheck
+from pokedex_mcp.platform.resilience.cache import CacheProbe
+from pokedex_mcp.platform.resilience.retry import RetryProbe
 from pokedex_mcp.platform.telemetry.log import LoggingTokenProbe
 from pokedex_mcp.platform.telemetry.otel import FanOutTokenProbe, OtelTokenProbe
+from pokedex_mcp.platform.telemetry.resilience import (
+    FanOutCacheProbe,
+    FanOutRetryProbe,
+    LoggingCacheProbe,
+    LoggingRetryProbe,
+    OtelCacheProbe,
+    OtelRetryProbe,
+)
 from pokedex_mcp.platform.telemetry.sdk import Telemetry
 from pokedex_mcp.platform.upstream.auth import AccessTokenProvider, BearerAuth, TokenProbe
 
@@ -54,6 +64,22 @@ class Platform:
         if self.telemetry is None:
             return LoggingTokenProbe()
         return FanOutTokenProbe(LoggingTokenProbe(), OtelTokenProbe(self.telemetry.meter_provider))
+
+    def cache_probe(self, catalog: str) -> CacheProbe:
+        """A catalog's cache signals, tagged `catalog.name`: logs, plus OTel when on."""
+        if self.telemetry is None:
+            return LoggingCacheProbe(catalog)
+        return FanOutCacheProbe(
+            LoggingCacheProbe(catalog), OtelCacheProbe(self.telemetry.meter_provider, catalog)
+        )
+
+    def retry_probe(self, catalog: str) -> RetryProbe:
+        """A catalog's retry signals, tagged `catalog.name`: logs, plus OTel when on."""
+        if self.telemetry is None:
+            return LoggingRetryProbe(catalog)
+        return FanOutRetryProbe(
+            LoggingRetryProbe(catalog), OtelRetryProbe(self.telemetry.meter_provider, catalog)
+        )
 
     def bearer_auth(self, tokens: AccessTokenProvider) -> BearerAuth:
         return BearerAuth(tokens, probe=self.token_probe())

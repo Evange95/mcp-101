@@ -1,7 +1,8 @@
-"""Probe adapters turning domain announcements into structured stdlib log records.
+"""Probe adapters turning Digimon announcements into structured stdlib log records.
 
-Fields go in `extra` with a `digimon.` prefix, so the OpenTelemetry log bridge exports
-them as attributes, correlated with the active trace.
+Fields go in `extra` under the shared `catalog.*` names (`platform/telemetry/names.py`),
+so the OpenTelemetry log bridge exports them as attributes, correlated with the active
+trace, and one log query covers every catalog.
 """
 
 import logging
@@ -11,7 +12,10 @@ from typing import TYPE_CHECKING
 
 from pokedex_mcp.catalogs.digimon.application.probes import Lookup, LookupProbe
 from pokedex_mcp.catalogs.digimon.domain.errors import DigimonUnavailable, InvalidQuery, NotFound
+from pokedex_mcp.platform.telemetry import names
 from pokedex_mcp.platform.telemetry.log import LOGGER_NAME
+
+CATALOG = "digimon"
 
 
 class _LoggingLookupProbe:
@@ -41,75 +45,49 @@ class _LoggingLookupProbe:
             outcome="unavailable",
         )
 
-    def _log(self, level: int, message: str, *args: object, **fields: str) -> None:
+    def _log(
+        self,
+        level: int,
+        message: str,
+        *args: object,
+        key: str | None = None,
+        outcome: str | None = None,
+    ) -> None:
         """`message` starts with a `%s` placeholder for the lookup name."""
-        extra = {"digimon.lookup": self._lookup, "digimon.query": self._query}
-        extra |= {f"digimon.{name}": value for name, value in fields.items()}
+        extra = {names.CATALOG: CATALOG, names.LOOKUP: self._lookup, names.QUERY: self._query}
+        if key is not None:
+            extra[names.KEY] = key
+        if outcome is not None:
+            extra[names.OUTCOME] = outcome
         self._logger.log(level, message, self._lookup, *args, extra=extra)
 
 
 class LoggingDigimonProbe:
     def __init__(self, logger: logging.Logger | None = None) -> None:
-        self._logger = logger or logging.getLogger(f"{LOGGER_NAME}.digimon.lookups")
+        self._logger = logger or logging.getLogger(f"{LOGGER_NAME}.{CATALOG}.lookups")
 
     @contextmanager
     def lookup(self, lookup: Lookup, query: str) -> Generator[LookupProbe]:
         yield _LoggingLookupProbe(self._logger, lookup, query)
 
 
-class LoggingCacheProbe:
-    def __init__(self, logger: logging.Logger | None = None) -> None:
-        self._logger = logger or logging.getLogger(f"{LOGGER_NAME}.digimon.cache")
-
-    def hit(self, resource: str) -> None:
-        self._log("cache hit for %s", resource, "hit")
-
-    def miss(self, resource: str, *, expired: bool) -> None:
-        self._log("cache miss for %s", resource, "expired" if expired else "miss")
-
-    def evicted(self, resource: str) -> None:
-        self._log("evicted least recently used %s", resource, "evicted")
-
-    def _log(self, message: str, resource: str, result: str) -> None:
-        extra = {"digimon.resource": resource, "digimon.cache.result": result}
-        self._logger.debug(message, resource, extra=extra)
-
-
-class LoggingRetryProbe:
-    def __init__(self, logger: logging.Logger | None = None) -> None:
-        self._logger = logger or logging.getLogger(f"{LOGGER_NAME}.digimon.retry")
-
-    def retry_scheduled(self, *, attempt: int, reason: str, wait_seconds: float) -> None:
-        self._logger.warning(
-            "attempt %d failed (%s), retrying in %.2fs",
-            attempt,
-            reason,
-            wait_seconds,
-            extra={"digimon.retry.attempt": attempt, "digimon.retry.wait_seconds": wait_seconds},
-        )
-
-
 class LoggingDigiApiProbe:
     def __init__(self, logger: logging.Logger | None = None) -> None:
-        self._logger = logger or logging.getLogger(f"{LOGGER_NAME}.digimon.digiapi")
+        self._logger = logger or logging.getLogger(f"{LOGGER_NAME}.{CATALOG}.digiapi")
 
     def unexpected_payload(self, resource: str, path: str, error: Exception) -> None:
         self._logger.warning(
             "unexpected digi-api payload for %s: %s",
             path,
             error,
-            extra={"digimon.resource": resource, "url.path": path},
+            extra={names.CATALOG: CATALOG, names.RESOURCE: resource, "url.path": path},
         )
 
 
 if TYPE_CHECKING:
     from pokedex_mcp.catalogs.digimon.adapters.outbound.probes import DigiApiProbe
     from pokedex_mcp.catalogs.digimon.application.probes import DigimonProbe
-    from pokedex_mcp.platform.resilience.cache import CacheProbe
-    from pokedex_mcp.platform.resilience.retry import RetryProbe
 
     _lookup_probe: type[LookupProbe] = _LoggingLookupProbe
     _digimon: type[DigimonProbe] = LoggingDigimonProbe
-    _cache: type[CacheProbe] = LoggingCacheProbe
-    _retry: type[RetryProbe] = LoggingRetryProbe
     _digiapi: type[DigiApiProbe] = LoggingDigiApiProbe
