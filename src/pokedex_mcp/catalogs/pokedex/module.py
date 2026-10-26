@@ -55,7 +55,9 @@ class PokedexModule:
         register_tools(mcp, self._service)
 
     def readiness_checks(self) -> Mapping[str, ReadinessCheck]:
-        return {"pokeapi_client": lambda: not self._http.is_closed}
+        # Nothing local can break: the HTTP client only closes at shutdown, when the phase
+        # already reports it, and PokeAPI itself is deliberately not a readiness check.
+        return {}
 
     def running(self) -> AbstractAsyncContextManager[object]:
         return self._http

@@ -79,7 +79,10 @@ Inside each catalog (paths below are relative to `catalogs/pokedex/`), hexagonal
   `server.py` (uvicorn subclass that drains on SIGTERM), and `telemetry/` (`sdk.py`: OTel
   providers, exporters, instrumentation; `log.py`: `configure_logging`, lifecycle probe). Liveness must never depend on PokeAPI or on
   the phase. Readiness checks only *local* resources: never add a check on a dependency
-  shared by every replica (it would take them all out of rotation at once). Anything
+  shared by every replica (it would take them all out of rotation at once). A local check
+  that still fails on every replica together (a missing shared Secret, an optional
+  catalog's config) is `ReadinessCheck(probe, gating=False)`: it shows as `degraded` and
+  never fails `/readyz`. Anything
   that must run at shutdown goes in the lifespan teardown or `GracefulServer.shutdown`,
   never only in a `finally` in `run()`, because uvicorn re-raises SIGTERM and kills the
   process.
@@ -101,7 +104,8 @@ Inside each catalog (paths below are relative to `catalogs/pokedex/`), hexagonal
   messages or test assertion messages. Probes and errors name the upstream only.
 - A token is optional per catalog: build the provider from settings in `module.py`
   (`<name>_token_file` preferred, `<name>_token` for local runs, both = validation error)
-  and pass `auth=None` when neither is set. Add the `<upstream>_token` readiness check only
+  and pass `auth=None` when neither is set. Add the non-gating `<upstream>_token` readiness
+  check only
   when a provider exists (see `DigimonModule`).
 - In the catalog adapter: catch `TokenUnavailable`, and map HTTP 401/403 to the catalog's
   non-retryable "unavailable" error. `BearerAuth` already retries once when a rotated

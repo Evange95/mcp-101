@@ -76,11 +76,12 @@ class DigimonModule:
         register_tools(mcp, self._service)
 
     def readiness_checks(self) -> Mapping[str, ReadinessCheck]:
-        checks: dict[str, ReadinessCheck] = {"digiapi_client": lambda: not self._http.is_closed}
-        if self._tokens is not None:
-            # Local only: is the Secret mounted? Whether digi-api accepts it is not readiness.
-            checks["digiapi_token"] = self._tokens.available
-        return checks
+        if self._tokens is None:
+            return {}
+        # Local only: is the Secret mounted? Not gating: a missing Secret is missing on
+        # every replica, and the Pokédex must keep serving. Digimon calls then fail with a
+        # clear "no access token" tool error, and /readyz lists the catalog as degraded.
+        return {"digiapi_token": ReadinessCheck(self._tokens.available, gating=False)}
 
     def running(self) -> AbstractAsyncContextManager[object]:
         return self._http

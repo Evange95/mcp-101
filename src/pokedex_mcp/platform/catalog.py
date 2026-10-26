@@ -114,7 +114,7 @@ def build_mcp_server(modules: Sequence[CatalogModule]) -> MCPServer:
 
 
 def readiness_checks(modules: Sequence[CatalogModule]) -> dict[str, ReadinessCheck]:
-    """Every module's checks, namespaced: {"pokedex.pokeapi_client": ...}."""
+    """Every module's checks, namespaced: {"digimon.digiapi_token": ...}."""
     return {
         f"{module.name}.{check}": probe
         for module in modules

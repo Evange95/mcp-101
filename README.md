@@ -146,7 +146,7 @@ decorators keep the port's exact method signatures, so they stay type-checked ag
 | `name` | short id (`pokedex`), used to namespace readiness checks |
 | `instructions` | one paragraph for the MCP `instructions`: what it holds and its tool prefix |
 | `register_tools(mcp)` | adds its tools to the shared MCP server |
-| `readiness_checks()` | local checks for `/readyz` (e.g. its HTTP client is open) |
+| `readiness_checks()` | local `ReadinessCheck`s for `/readyz`; `gating=False` for one that would fail on every replica at once (see Health checks) |
 | `running()` | async context manager holding its resources (HTTP clients) for the app's lifetime |
 
 The platform passes each module a `Platform`, which hands out HTTP clients that are
@@ -556,7 +556,7 @@ starting ──▶ ready ──▶ draining ──▶ stopping
 | Phase | Meaning | `/livez` | `/readyz` |
 |---|---|---|---|
 | `starting` | lifespan startup not finished (HTTP client, MCP session manager) | 200 | 503 |
-| `ready` | serving traffic | 200 | 200 if every readiness check passes |
+| `ready` | serving traffic | 200 | 200 if every gating readiness check passes (`degraded` if a non-gating one fails) |
 | `draining` | SIGTERM received: still serving, asking to be removed from the Service | 200 | 503 |
 | `stopping` | not accepting connections; finishing in-flight requests and closing resources | 200 while it still answers | 503 |
 
@@ -566,13 +566,26 @@ starting ──▶ ready ──▶ draining ──▶ stopping
   request. It never looks at PokeAPI or at the phase. If liveness followed an upstream
   outage, Kubernetes would restart healthy pods in a loop. If it followed the draining
   phase, Kubernetes would kill a pod during its graceful shutdown.
-- **`GET /readyz`**: "send me new traffic". 200 only in the `ready` phase *and* when the
-  local readiness checks of every catalog module pass, namespaced by module (today:
-  `pokedex.pokeapi_client`, the PokeAPI HTTP client is open). The body says why:
+- **`GET /readyz`**: "send me new traffic". 200 only in the `ready` phase *and* when every
+  **gating** check of every catalog module passes. Checks are namespaced by module. The
+  body says why:
 
   ```json
-  {"status": "not_ready", "phase": "draining", "checks": {"pokedex.pokeapi_client": "ok"}}
+  {"status": "not_ready", "phase": "draining", "checks": {}}
+  {"status": "degraded", "phase": "ready", "checks": {"digimon.digiapi_token": "failing"},
+   "degraded": ["digimon.digiapi_token"]}
   ```
+
+  Today no check is gating, and that is on purpose. The HTTP clients used to be checked
+  ("is it still open?"), but they only close at shutdown, when the phase already says
+  `stopping`, so the check could never catch anything. The Digimon token file
+  (`digimon.digiapi_token`, only when `POKEDEX_DIGIMON_TOKEN_FILE` is set) is
+  **non-gating**: the Secret is the same for every replica, so a missing one would take
+  all of them out of rotation at once, the Pokédex included. Instead `/readyz` stays 200
+  with `"status": "degraded"`, the Digimon tools answer with a clear "no access token"
+  tool error, and the Pokédex keeps serving. A gating check (`ReadinessCheck(probe)`)
+  is for a resource that can break on one replica only, such as a local disk or a
+  per-pod sidecar.
 
   **PokeAPI reachability is deliberately not a readiness check.** It is a dependency shared
   by every replica. If PokeAPI went down, all pods would become unready together, the
@@ -652,8 +665,8 @@ then also session affinity (or a shared event store) in Kubernetes.
   `subPath`, mode `0440`, `optional: true`). To turn it on, create the Secret
   (`kubectl create secret generic digimon-api-token --from-file=token=./token`) and set
   the flag to `"true"`. If the flag is on and the Secret is missing, `/readyz` reports
-  `digimon.digiapi_token: failing`, so a misconfigured rollout never becomes ready
-  (`maxUnavailable: 0` keeps the old pods serving). Against the public digi-api.com,
+  `"status": "degraded"` with `digimon.digiapi_token: failing` (still 200: the Pokédex
+  keeps serving, the Digimon tools report the missing token). Against the public digi-api.com,
   drop `POKEDEX_DIGIMON_TOKEN_FILE` instead.
 
 Validate and try it locally:
@@ -705,7 +718,7 @@ claude mcp add --transport http monsterdex http://127.0.0.1:8000/mcp
 | `POKEDEX_SHUTDOWN_TIMEOUT_SECONDS` | `20` — then wait at most this long (integer seconds) for in-flight requests |
 | `POKEDEX_DIGIMON_ENABLED` | `false` — serve the `digimon_*` tools |
 | `POKEDEX_DIGIMON_BASE_URL` | `https://digi-api.com/api/v1` |
-| `POKEDEX_DIGIMON_TOKEN_FILE` | none — file holding the service token (a mounted Secret, re-read on rotation); adds the `digimon.digiapi_token` readiness check |
+| `POKEDEX_DIGIMON_TOKEN_FILE` | none — file holding the service token (a mounted Secret, re-read on rotation); adds the non-gating `digimon.digiapi_token` readiness check |
 | `POKEDEX_DIGIMON_TOKEN` | none — the token itself, for local runs only. Setting both token variables is a startup error. With neither, no `Authorization` header is sent |
 
 With telemetry on, the exporters follow the standard `OTEL_*` variables:
@@ -802,7 +815,7 @@ uv run pytest -m live                           # contract tests against the rea
 | `tests/integration/test_shutdown.py` | a real server process gets SIGTERM: drains, exits 0, flushes telemetry to a fake OTLP collector | localhost subprocess (~5 s) |
 | `tests/unit/digimon` | Digimon use cases (key normalization keeps spaces), cache and retry decorators, log and OTel probes with `catalog.name="digimon"` | none (fake repository, in-memory exporters) |
 | `tests/unit/test_telemetry_names.py` | Pokédex and Digimon emit the same metric names and attribute keys | in-memory exporters |
-| `tests/integration/digimon` | digi-api client against recorded payloads (400 = not found, HTML page, empty page, token sent, 401/403 not retried, missing token file); `digimon_*` tools; the feature flag and the readiness checks it adds | HTTP mocked with `respx`, in-process MCP client and app |
+| `tests/integration/digimon` | digi-api client against recorded payloads (400 = not found, HTML page, empty page, token sent, 401/403 not retried, missing token file); `digimon_*` tools; the feature flag; a missing token file degrades `/readyz` instead of failing it | HTTP mocked with `respx`, in-process MCP client and app |
 | `tests/live` | real PokeAPI and digi-api still match our DTOs | network, opt-in |
 
 Test helpers:

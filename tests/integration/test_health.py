@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
@@ -6,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from pokedex_mcp.config import Settings
 from pokedex_mcp.main import create_app
-from pokedex_mcp.platform.health import build_health_router
+from pokedex_mcp.platform.health import ReadinessCheck, build_health_router
 from pokedex_mcp.platform.lifecycle import Lifecycle
 from tests.integration.test_app import BASE_URL
 
@@ -34,7 +35,7 @@ def test_a_started_replica_is_alive_and_ready(running):
     assert ready.json() == {
         "status": "ready",
         "phase": "ready",
-        "checks": {"pokedex.pokeapi_client": "ok"},
+        "checks": {},
     }
 
 
@@ -56,21 +57,41 @@ def test_a_draining_replica_stays_alive_but_leaves_rotation(running, lifecycle):
     assert response.json()["phase"] == "draining"
 
 
-def test_readiness_fails_when_a_local_resource_is_gone():
+def readyz(checks: dict[str, ReadinessCheck]) -> tuple[int, Any]:
+    """Status code and body of `/readyz` for a ready replica with these checks."""
     lifecycle = Lifecycle()
     lifecycle.ready()
     app = FastAPI()
-    app.include_router(
-        build_health_router(
-            lifecycle, checks={"pokeapi_client": lambda: False, "other": lambda: True}
-        )
+    app.include_router(build_health_router(lifecycle, checks=checks))
+    response = TestClient(app).get("/readyz")
+    return response.status_code, response.json()
+
+
+def test_readiness_fails_when_a_gating_check_fails():
+    status, body = readyz(
+        {"disk": ReadinessCheck(lambda: False), "other": ReadinessCheck(lambda: True)}
     )
 
-    response = TestClient(app).get("/readyz")
-
-    assert response.status_code == 503
-    assert response.json() == {
+    assert status == 503
+    assert body == {
         "status": "not_ready",
         "phase": "ready",
-        "checks": {"pokeapi_client": "failing", "other": "ok"},
+        "checks": {"disk": "failing", "other": "ok"},
+    }
+
+
+def test_a_failing_non_gating_check_degrades_but_keeps_the_replica_in_rotation():
+    status, body = readyz(
+        {
+            "digimon.digiapi_token": ReadinessCheck(lambda: False, gating=False),
+            "other": ReadinessCheck(lambda: True),
+        }
+    )
+
+    assert status == 200
+    assert body == {
+        "status": "degraded",
+        "phase": "ready",
+        "checks": {"digimon.digiapi_token": "failing", "other": "ok"},
+        "degraded": ["digimon.digiapi_token"],
     }

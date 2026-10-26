@@ -126,24 +126,23 @@ async def test_enabled_it_shares_the_one_endpoint_and_its_instructions():
     assert "- Pokémon (data from PokeAPI): tools start with `pokemon_`" in mcp.instructions
 
 
-def test_readiness_checks_the_token_file_only_when_one_is_configured(tmp_path: Path):
+def test_a_missing_token_file_degrades_digimon_without_taking_the_pokedex_down(tmp_path: Path):
     token_file = tmp_path / "token"
-    with_file = Settings(digimon_enabled=True, digimon_token_file=token_file)
     without = Settings(digimon_enabled=True)
+    with_file = Settings(digimon_enabled=True, digimon_token_file=token_file)
 
     with TestClient(create_app(without)) as app:
-        assert set(app.get("/readyz").json()["checks"]) == {
-            "pokedex.pokeapi_client",
-            "digimon.digiapi_client",
-        }
+        assert app.get("/readyz").json()["checks"] == {}
     with TestClient(create_app(with_file)) as app:
         missing = app.get("/readyz")
         token_file.write_text("s3cret\n")
         present = app.get("/readyz")
 
-    assert missing.status_code == 503
-    assert missing.json()["checks"]["digimon.digiapi_token"] == "failing"
+    assert missing.status_code == 200  # still in rotation: the Pokédex keeps serving
+    assert missing.json()["status"] == "degraded"
+    assert missing.json()["degraded"] == ["digimon.digiapi_token"]
     assert present.status_code == 200
+    assert present.json()["status"] == "ready"
     assert "s3cret" not in missing.text + present.text
 
 
