@@ -18,6 +18,16 @@ from pokedex_mcp.platform.health import ReadinessCheck
 from pokedex_mcp.platform.resilience.cache import CacheProbe
 from pokedex_mcp.platform.resilience.retry import RetryProbe
 from pokedex_mcp.platform.telemetry.log import LoggingTokenProbe
+from pokedex_mcp.platform.telemetry.lookups import (
+    FanOutLookupRecorder,
+    FanOutPayloadRecorder,
+    LoggingLookupRecorder,
+    LoggingPayloadRecorder,
+    LookupRecorder,
+    OtelLookupRecorder,
+    OtelPayloadRecorder,
+    PayloadRecorder,
+)
 from pokedex_mcp.platform.telemetry.otel import FanOutTokenProbe, OtelTokenProbe
 from pokedex_mcp.platform.telemetry.resilience import (
     FanOutCacheProbe,
@@ -68,6 +78,26 @@ class Platform:
         if self.telemetry is None:
             return LoggingTokenProbe()
         return FanOutTokenProbe(LoggingTokenProbe(), OtelTokenProbe(self.telemetry.meter_provider))
+
+    def lookup_recorder(self, catalog: str) -> LookupRecorder:
+        """Where a catalog's lookups are recorded: logs, plus spans and metrics when on."""
+        if self.telemetry is None:
+            return LoggingLookupRecorder(catalog)
+        return FanOutLookupRecorder(
+            LoggingLookupRecorder(catalog),
+            OtelLookupRecorder(
+                catalog, self.telemetry.tracer_provider, self.telemetry.meter_provider
+            ),
+        )
+
+    def payload_recorder(self, catalog: str, upstream: str) -> PayloadRecorder:
+        """Where a catalog's unexpected upstream payloads are recorded."""
+        if self.telemetry is None:
+            return LoggingPayloadRecorder(catalog, upstream)
+        return FanOutPayloadRecorder(
+            LoggingPayloadRecorder(catalog, upstream),
+            OtelPayloadRecorder(catalog, self.telemetry.meter_provider),
+        )
 
     def cache_probe(self, catalog: str) -> CacheProbe:
         """A catalog's cache signals, tagged `catalog.name`: logs, plus OTel when on."""

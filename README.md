@@ -135,13 +135,14 @@ src/pokedex_mcp/
           cache.py            CachedPokedexRepository: one line per method over TtlLruCache;
                               decides the cache key of each operation
           probes.py           PokeApiProbe (+ Null implementation)
-          telemetry/          Pokédex probe implementations: logs, OTel, fan-out (see below)
+          telemetry/probes.py RecordedPokedexProbe (domain events -> platform recorders),
+                              build_probes(platform)
     digimon/                  the Digimon catalog (digi-api.com), same layout:
       domain/                 Digimon, Digivolution, Skill, DigimonFilter, DigimonPage; errors
       application/            DigimonRepository port, DigimonProbe, DigimonService
       adapters/inbound/mcp/   DigimonTools (`digimon_*`) and output schemas
       adapters/outbound/      digiapi/ (client, DTOs, mappers), cache.py, retry.py, probes.py,
-                              telemetry/ (logs, OTel, fan-out; shared `catalog.*` names)
+                              telemetry/probes.py (RecordedDigimonProbe, build_probes)
       module.py               DigimonModule: token provider, HTTP client, readiness checks
   platform/                   infrastructure shared by every catalog; imports no catalog
     lifecycle.py              Lifecycle phases (starting → ready → draining → stopping)
@@ -154,6 +155,7 @@ src/pokedex_mcp/
     telemetry/otel.py         OtelTokenProbe, FanOutTokenProbe (platform-level OTel probes)
     telemetry/names.py        every `catalog.*` attribute, event and metric name
     telemetry/resilience.py   log/OTel/fan-out CacheProbe and RetryProbe for any catalog
+    telemetry/lookups.py      log/OTel/fan-out lookup and payload recorders for any catalog
     upstream/auth.py          service access tokens: StaticTokenProvider, FileTokenProvider,
                               BearerAuth (httpx), TokenProbe, TokenUnavailable
     resilience/cache.py       TtlLruCache + CacheProbe: TTL + LRU cache for any async loader
@@ -337,17 +339,20 @@ reuses the generic `CacheProbe`, `RetryProbe` and `TokenProbe`.
 
 ### Implementations (the adapters)
 
-Pokédex probes, in `catalogs/pokedex/adapters/outbound/telemetry/`:
+**In a catalog: one small translator.** `catalogs/<name>/adapters/outbound/telemetry/probes.py`
+has `Recorded<Name>Probe`, which implements the catalog's probe port and turns each
+announcement into a primitive event of the platform's `LookupRecorder`
+(`not_found(error: NotFound)` → `not_found(error.resource)`), and
+`build_probes(platform)`, which assembles the catalog's probes from what the platform
+hands out. The upstream probe port (`PokeApiProbe`, `DigiApiProbe`) is already primitive
+(`unexpected_payload(resource, path, error)`), so the platform's payload recorder fits it
+as is (checked statically).
 
-| Module | Role |
-|---|---|
-| `log.py` | `Logging*Probe`: structured stdlib log records. **Always on.** |
-| `otel.py` | `Otel*Probe`: OpenTelemetry spans and metrics. On with `POKEDEX_TELEMETRY_ENABLED=true`. |
-| `fanout.py` | `FanOut*Probe`: forwards every announcement to several probes (logs + OTel). |
-| `probes.py` | `build_probes(platform)`: the lookup and PokeAPI probes (logs only when telemetry is off, logs + OTel otherwise), plus the platform's cache and retry probes for `catalog.name="pokedex"`. |
-
-Digimon probes, in `catalogs/digimon/adapters/outbound/telemetry/`: the same four modules
-for `DigimonProbe` and `DigiApiProbe`.
+Why this split: the *ports* stay in the catalog's language (that is what keeps the core
+readable), while the *recording* (log levels, span status rules, metric names) exists once.
+Before, each catalog had its own copy of the log, OTel and fan-out adapters; they were
+identical except for the names, and a third catalog would have made three copies to keep
+in sync.
 
 Shared by every catalog, in `platform/telemetry/`:
 
@@ -357,6 +362,7 @@ Shared by every catalog, in `platform/telemetry/`:
 | `log.py` | `configure_logging()` for the console and `LoggingLifecycleProbe`. |
 | `names.py` | every `catalog.*` attribute, event and metric name. Catalog adapters import them; none spells its own. |
 | `resilience.py` | `Logging/Otel/FanOut` `CacheProbe` and `RetryProbe`, built with the catalog's name. `Platform.cache_probe(catalog)` / `retry_probe(catalog)` hand them out. |
+| `lookups.py` | `LookupRecorder` (`Logging`, `Otel`, `FanOut`): one span per lookup, `catalog.lookups` / `catalog.lookup.duration`, and the log lines, for any catalog. `PayloadRecorder`: unexpected upstream payloads. `Platform.lookup_recorder(catalog)` / `payload_recorder(catalog, upstream)` give logs always and OTel too when telemetry is on. |
 
 Wiring happens only in `main.py`: `run()` creates `Telemetry.otlp()` when enabled,
 `install()`s it as the global provider (once per process — the MCP SDK emits its own spans
@@ -500,15 +506,16 @@ If no collector is reachable the server keeps working; the exporters only log wa
    for the core, `catalogs/<name>/adapters/outbound/probes.py` for the upstream adapter,
    `platform/resilience/` for cache and retry) and to its `Null…` class.
 2. Call it from the code where the event happens. Nothing else in that code changes.
-3. Add any new attribute, event or metric name to `platform/telemetry/names.py`, then
-   implement the announcement in `log.py` (pick a level), `otel.py` (span attribute/event
-   and/or metric, low-cardinality attributes only, always with `catalog.name`) and
-   `fanout.py` — of every catalog that announces it, or once in
-   `platform/telemetry/resilience.py` for cache and retry.
+3. Add any new attribute, event or metric name to `platform/telemetry/names.py`. If it is
+   a new kind of lookup event, add it to `LookupEvents` and its three implementations in
+   `platform/telemetry/lookups.py` (pick a log level; span attribute/event and/or metric,
+   low-cardinality attributes only), then translate the catalog's announcement onto it in
+   each catalog's `telemetry/probes.py`. Cache and retry live in
+   `platform/telemetry/resilience.py`.
 4. Record it in the test doubles in `tests/fakes.py` and assert it in the unit tests of the
    code that announces it; test the OTel/log translation in `tests/unit/adapters/telemetry/`
-   (Pokédex), `tests/unit/digimon/` or `tests/unit/platform/`. If it is a metric, extend
-   `tests/unit/test_telemetry_names.py`.
+   (Pokédex), `tests/unit/digimon/` or `tests/unit/platform/test_telemetry_lookups.py`.
+   If it is a metric, extend `tests/unit/test_telemetry_names.py`.
 5. Document it in the tables above.
 
 ## Upstream authentication (service access tokens)

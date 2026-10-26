@@ -5,18 +5,16 @@ import logging
 import pytest
 from opentelemetry.trace import StatusCode
 
-from pokedex_mcp.catalogs.digimon.adapters.outbound.telemetry.fanout import FanOutDigimonProbe
-from pokedex_mcp.catalogs.digimon.adapters.outbound.telemetry.log import (
-    LoggingDigiApiProbe,
-    LoggingDigimonProbe,
-)
-from pokedex_mcp.catalogs.digimon.adapters.outbound.telemetry.otel import (
-    OtelDigiApiProbe,
-    OtelDigimonProbe,
-)
+from pokedex_mcp.catalogs.digimon.adapters.outbound.telemetry.probes import RecordedDigimonProbe
 from pokedex_mcp.catalogs.digimon.application.use_cases import DigimonService
 from pokedex_mcp.catalogs.digimon.domain.errors import DigimonUnavailable, InvalidQuery, NotFound
-from tests.digimon.fakes import FakeDigimonRepository, RecordingDigimonProbe, full_repository
+from pokedex_mcp.platform.telemetry.lookups import (
+    LoggingLookupRecorder,
+    LoggingPayloadRecorder,
+    OtelLookupRecorder,
+    OtelPayloadRecorder,
+)
+from tests.digimon.fakes import FakeDigimonRepository, full_repository
 from tests.otel import Otel
 
 pytestmark = pytest.mark.anyio
@@ -25,7 +23,9 @@ pytestmark = pytest.mark.anyio
 def otel_service(otel: Otel, repository: FakeDigimonRepository | None = None) -> DigimonService:
     return DigimonService(
         repository or full_repository(),
-        probe=OtelDigimonProbe(otel.tracer_provider, otel.meter_provider),
+        probe=RecordedDigimonProbe(
+            OtelLookupRecorder("digimon", otel.tracer_provider, otel.meter_provider)
+        ),
     )
 
 
@@ -67,7 +67,9 @@ async def test_only_an_unavailable_source_is_a_span_error(otel):
 
 
 def test_unexpected_payloads_are_counted_under_the_shared_name(otel):
-    OtelDigiApiProbe(otel.meter_provider).unexpected_payload("Digimon", "digimon/x", ValueError())
+    OtelPayloadRecorder("digimon", otel.meter_provider).unexpected_payload(
+        "Digimon", "digimon/x", ValueError()
+    )
 
     assert otel.counts("catalog.upstream.unexpected_payloads") == {("digimon", "Digimon"): 1}
 
@@ -75,8 +77,12 @@ def test_unexpected_payloads_are_counted_under_the_shared_name(otel):
 async def test_logs_use_digimon_loggers_and_catalog_fields(caplog):
     caplog.set_level(logging.DEBUG, logger="pokedex_mcp")
 
-    await DigimonService(full_repository(), probe=LoggingDigimonProbe()).get_digimon("Agumon")
-    LoggingDigiApiProbe().unexpected_payload("Digimon", "digimon/x", ValueError("x"))
+    await DigimonService(
+        full_repository(), probe=RecordedDigimonProbe(LoggingLookupRecorder("digimon"))
+    ).get_digimon("Agumon")
+    LoggingPayloadRecorder("digimon", "digi-api").unexpected_payload(
+        "Digimon", "digimon/x", ValueError("x")
+    )
 
     assert [(r.name, r.levelname, r.getMessage()) for r in caplog.records] == [
         ("pokedex_mcp.digimon.lookups", "DEBUG", "digimon query 'Agumon' normalized to 'agumon'"),
@@ -89,14 +95,3 @@ async def test_logs_use_digimon_loggers_and_catalog_fields(caplog):
     ]
     found = vars(caplog.records[1])
     assert (found["catalog.name"], found["catalog.outcome"]) == ("digimon", "found")
-
-
-async def test_fan_out_forwards_every_announcement_to_each_probe():
-    first, second = RecordingDigimonProbe(), RecordingDigimonProbe()
-    service = DigimonService(full_repository(), probe=FanOutDigimonProbe(first, second))
-
-    with pytest.raises(NotFound):
-        await service.get_digimon("nobody")
-
-    assert first.events == second.events
-    assert first.events[-2:] == ["digimon: not found Digimon", "digimon: ended"]

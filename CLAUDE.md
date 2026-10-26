@@ -159,13 +159,13 @@ for the full catalogue of spans, metrics and logs.
   `catalogs/<name>/adapters/outbound/probes.py` (upstream adapter), `platform/resilience/{cache,retry}.py` (`CacheProbe`, `RetryProbe`: generic, no
   domain types — e.g. `retry_scheduled` takes a `reason: str`, not a domain error).
   Every probe has a `Null…` implementation used as the default constructor argument.
-- A catalog's lookup and upstream probe implementations live in
-  `catalogs/<name>/adapters/outbound/telemetry/`: `log.py` (stdlib logging, always on),
-  `otel.py` (OpenTelemetry spans and metrics), `fanout.py` (both at once), `probes.py`
-  (`build_probes(platform)`). Cache and retry probe implementations are generic and live
-  once in `platform/telemetry/resilience.py`; catalogs get them from
-  `Platform.cache_probe(name)` / `retry_probe(name)`, never reimplement them. The SDK
-  bootstrap (`Telemetry`) is in `platform/telemetry/sdk.py`.
+- Recording is implemented **once**, in the platform: `platform/telemetry/lookups.py`
+  (`LookupRecorder`, `PayloadRecorder`: log, OTel, fan-out) and
+  `platform/telemetry/resilience.py` (cache, retry). A catalog's
+  `adapters/outbound/telemetry/probes.py` only has `Recorded<Name>Probe`, which translates
+  its domain announcements into `LookupEvents` (no logging, no OTel calls there), and
+  `build_probes(platform)`. Never add per-catalog log/OTel/fan-out probe classes again.
+  The SDK bootstrap (`Telemetry`) is in `platform/telemetry/sdk.py`.
 - **Shared telemetry names.** Every attribute, span event and metric a catalog emits uses
   a constant from `platform/telemetry/names.py` (`catalog.lookups`, `catalog.outcome`, ...)
   and carries `catalog.name` (`"pokedex"`, `"digimon"`). Never introduce a per-catalog
@@ -187,8 +187,9 @@ for the full catalogue of spans, metrics and logs.
   SDK emits `tools/call ...` spans through the global tracer. `run()` owns the
   telemetry lifecycle; `create_app(settings, telemetry)` only instruments.
 - To add an announcement: protocol method + `Null` → call site → name in `names.py` →
-  `log.py` + `otel.py` + `fanout.py` (every catalog that announces it) → recording double
-  in `tests/fakes.py` / `tests/<name>/fakes.py` → tests → README tables.
+  `LookupEvents` + its log/OTel/fan-out implementations in `platform/telemetry/lookups.py`
+  (if it is a new kind of event) → the translation in each catalog's `telemetry/probes.py`
+  → recording double in `tests/fakes.py` / `tests/<name>/fakes.py` → tests → README tables.
 
 ## Testing conventions
 

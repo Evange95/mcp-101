@@ -2,9 +2,10 @@ import pytest
 from opentelemetry.trace import StatusCode
 
 from pokedex_mcp.catalogs.pokedex.adapters.outbound.cache import CachedPokedexRepository
-from pokedex_mcp.catalogs.pokedex.adapters.outbound.telemetry.otel import OtelPokedexProbe
+from pokedex_mcp.catalogs.pokedex.adapters.outbound.telemetry.probes import RecordedPokedexProbe
 from pokedex_mcp.catalogs.pokedex.application.use_cases import PokedexService
 from pokedex_mcp.catalogs.pokedex.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
+from pokedex_mcp.platform.telemetry.lookups import OtelLookupRecorder
 from pokedex_mcp.platform.telemetry.resilience import OtelCacheProbe
 from tests.builders import make_pokemon, make_species
 from tests.fakes import FakePokedexRepository, full_repository
@@ -16,7 +17,10 @@ pytestmark = pytest.mark.anyio
 def service(otel: Otel, repository: FakePokedexRepository | None = None) -> PokedexService:
     repository = repository or full_repository()
     return PokedexService(
-        repository, probe=OtelPokedexProbe(otel.tracer_provider, otel.meter_provider)
+        repository,
+        probe=RecordedPokedexProbe(
+            OtelLookupRecorder("pokedex", otel.tracer_provider, otel.meter_provider)
+        ),
     )
 
 
@@ -115,7 +119,10 @@ async def test_cache_results_are_counted_and_tag_the_lookup_span(otel):
         probe=OtelCacheProbe(otel.meter_provider, "pokedex"),
     )
     pokedex = PokedexService(
-        cache, probe=OtelPokedexProbe(otel.tracer_provider, otel.meter_provider)
+        cache,
+        probe=RecordedPokedexProbe(
+            OtelLookupRecorder("pokedex", otel.tracer_provider, otel.meter_provider)
+        ),
     )
 
     await pokedex.get_pokemon("pikachu")
