@@ -1,8 +1,6 @@
-import json
-from collections.abc import Iterator
-from typing import Any
+from collections.abc import Iterator, Mapping
+from typing import Any, Protocol
 
-import httpx
 import pytest
 import respx
 from fastapi.testclient import TestClient
@@ -38,21 +36,39 @@ def http(settings: Settings) -> Iterator[TestClient]:
         yield client
 
 
-def sse_messages(response: httpx.Response) -> list[dict[str, Any]]:
-    return [
-        json.loads(line.removeprefix("data: "))
-        for line in response.text.splitlines()
-        if line.startswith("data: ")
-    ]
+class _JsonResponse(Protocol):
+    """What `rpc_result` reads; httpx and the TestClient's response types both have it."""
+
+    @property
+    def headers(self) -> Mapping[str, str]: ...
+
+    def json(self) -> Any: ...
 
 
-def open_session(http: TestClient) -> dict[str, str]:
+def rpc_result(response: _JsonResponse) -> dict[str, Any]:
+    """The JSON-RPC result of a plain JSON response (the server never streams)."""
+    assert response.headers["content-type"].startswith("application/json")
+    result: dict[str, Any] = response.json()["result"]
+    return result
+
+
+def initialize(http: TestClient) -> dict[str, str]:
+    """A client's handshake. Stateless: no `mcp-session-id`, later calls need no header."""
     response = http.post("/mcp", json=INITIALIZE, headers=MCP_HEADERS)
     assert response.status_code == 200
-    headers = {**MCP_HEADERS, "mcp-session-id": response.headers["mcp-session-id"]}
+    assert "mcp-session-id" not in response.headers
     initialized = {"jsonrpc": "2.0", "method": "notifications/initialized"}
-    assert http.post("/mcp", json=initialized, headers=headers).status_code == 202
-    return headers
+    assert http.post("/mcp", json=initialized, headers=MCP_HEADERS).status_code == 202
+    return MCP_HEADERS
+
+
+def tool_call(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {"name": name, "arguments": arguments},
+    }
 
 
 def test_health_is_an_alias_of_livez(http):
@@ -65,7 +81,7 @@ def test_health_is_an_alias_of_livez(http):
 def test_mcp_endpoint_identifies_the_monsterdex_server(http):
     response = http.post("/mcp", json=INITIALIZE, headers=MCP_HEADERS)
 
-    result = sse_messages(response)[0]["result"]
+    result = rpc_result(response)
     assert result["serverInfo"]["name"] == "monsterdex"
     assert "- Pokémon (data from PokeAPI): tools start with `pokemon_`" in result["instructions"]
 
@@ -73,19 +89,33 @@ def test_mcp_endpoint_identifies_the_monsterdex_server(http):
 def test_get_pokemon_end_to_end_through_pokeapi(http):
     with respx.mock(base_url=BASE_URL) as pokeapi:
         pokeapi.get("/pokemon/pikachu").respond(json=load_json("pokemon_pikachu.json"))
-        headers = open_session(http)
-        call = {
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": {"name": "pokemon_get", "arguments": {"name_or_id": "Pikachu"}},
-        }
-        response = http.post("/mcp", json=call, headers=headers)
+        headers = initialize(http)
+        response = http.post(
+            "/mcp", json=tool_call("pokemon_get", {"name_or_id": "Pikachu"}), headers=headers
+        )
 
-    result = sse_messages(response)[0]["result"]
+    result = rpc_result(response)
     assert result["isError"] is False
     assert result["structuredContent"]["name"] == "pikachu"
     assert result["structuredContent"]["types"] == ["electric"]
+
+
+def test_any_replica_answers_a_client_that_initialized_on_another(settings):
+    """Two replicas behind a Service without session affinity: the handshake lands on one,
+    the tool call on the other. Stateful sessions would answer "session not found"."""
+    with (
+        TestClient(create_app(settings), base_url="http://localhost:8000") as replica_a,
+        TestClient(create_app(settings), base_url="http://localhost:8000") as replica_b,
+        respx.mock(base_url=BASE_URL) as pokeapi,
+    ):
+        pokeapi.get("/pokemon/pikachu").respond(json=load_json("pokemon_pikachu.json"))
+        headers = initialize(replica_a)
+        response = replica_b.post(
+            "/mcp", json=tool_call("pokemon_get", {"name_or_id": "pikachu"}), headers=headers
+        )
+
+    assert response.status_code == 200
+    assert rpc_result(response)["structuredContent"]["name"] == "pikachu"
 
 
 def test_rejects_unknown_host_headers(http):

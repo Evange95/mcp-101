@@ -18,7 +18,7 @@ from pokedex_mcp.config import Settings
 from pokedex_mcp.main import create_app
 from pokedex_mcp.platform.telemetry.sdk import Telemetry
 from tests.data import load_json
-from tests.integration.test_app import BASE_URL, open_session, sse_messages
+from tests.integration.test_app import BASE_URL, initialize, rpc_result
 
 SPANS = InMemorySpanExporter()
 METRICS = InMemoryMetricReader()
@@ -46,7 +46,7 @@ def http(telemetry: Telemetry) -> Iterator[TestClient]:
 
 
 def call_tool(http, name: str, arguments: dict[str, object]) -> None:
-    headers = open_session(http)
+    headers = initialize(http)
     SPANS.clear()
     call = {
         "jsonrpc": "2.0",
@@ -54,7 +54,7 @@ def call_tool(http, name: str, arguments: dict[str, object]) -> None:
         "method": "tools/call",
         "params": {"name": name, "arguments": arguments},
     }
-    assert "result" in sse_messages(http.post("/mcp", json=call, headers=headers))[0]
+    assert rpc_result(http.post("/mcp", json=call, headers=headers))
 
 
 def parent_id(span: ReadableSpan) -> int | None:

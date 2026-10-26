@@ -47,10 +47,15 @@ def create_app(
     # A fresh MCPServer per app: its session manager can only be run once.
     mcp = build_mcp_server(modules)
     mcp_app = mcp.streamable_http_app(
+        # Every tool is read-only and keeps no per-client state, so no session is needed:
+        # any replica can answer any request, and a rolling update or a drain loses
+        # nothing. Plain JSON responses: there is nothing to stream.
+        stateless_http=True,
+        json_response=True,
         transport_security=TransportSecuritySettings(
             allowed_hosts=[*LOCAL_HOSTS, *settings.allowed_hosts],
             allowed_origins=LOCAL_ORIGINS,
-        )
+        ),
     )
 
     @asynccontextmanager

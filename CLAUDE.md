@@ -83,6 +83,10 @@ Inside each catalog (paths below are relative to `catalogs/pokedex/`), hexagonal
   that must run at shutdown goes in the lifespan teardown or `GracefulServer.shutdown`,
   never only in a `finally` in `run()`, because uvicorn re-raises SIGTERM and kills the
   process.
+- The MCP transport is **stateless with JSON responses** (`stateless_http=True`,
+  `json_response=True` in `create_app`): several replicas sit behind one Service without
+  session affinity. Do not add tools that need a session (progress notifications,
+  sampling, elicitation, per-client state) without revisiting that.
 - `main.py` is the only composition root: all wiring (adapters, probes, telemetry) is there.
 - Configuration lives in `config.py` (`POKEDEX_*` env vars); OpenTelemetry exporters use
   the standard `OTEL_*` vars instead of new settings.

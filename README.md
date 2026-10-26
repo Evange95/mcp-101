@@ -595,8 +595,9 @@ What happens on `kubectl delete pod`, a rollout or a node drain:
    served normally. Nothing is refused while traffic is being moved away.
 3. **Stop accepting, finish in-flight** (`POKEDEX_SHUTDOWN_TIMEOUT_SECONDS`, default 20):
    uvicorn closes the listening socket and waits for open requests. After the timeout, it
-   cancels what is left. Long-lived MCP SSE streams are the usual reason to hit it. Without
-   this setting uvicorn would wait forever.
+   cancels what is left. The transport is stateless with JSON responses, so there are no
+   long-lived MCP streams to wait for: in-flight requests are just tool calls. Without
+   this setting uvicorn would still wait forever on a stuck upstream call.
 4. **Release resources**: the lifespan shutdown closes the MCP session manager and the
    PokeAPI HTTP client.
 5. **Flush telemetry**: spans, metrics and logs still buffered are exported before the
@@ -611,6 +612,27 @@ Kubernetes sends SIGKILL.
 Other signals: **SIGINT** (Ctrl+C in a terminal) skips the drain. A **second signal**
 during the drain stops immediately. With `POKEDEX_SHUTDOWN_DRAIN_SECONDS=0`, SIGTERM goes
 straight to step 3.
+
+### Stateless MCP transport
+
+`create_app` serves Streamable HTTP with `stateless_http=True` and `json_response=True`:
+
+- **No session state on the pod.** With the SDK default (stateful), `initialize` creates a
+  session in one pod's memory and returns its `mcp-session-id`. Behind a Service with
+  2 replicas and no affinity, the next request lands on the other pod about half the
+  time and fails with "session not found"; a rolling update or a drain drops every open
+  session. Stateless, any replica answers any request.
+- **Why it is safe here.** Every tool is read-only and keeps no per-client state, and the
+  server sends no server-initiated messages (no sampling, no elicitation, no
+  notifications), which are the only things a session is needed for.
+- **Plain JSON responses.** Nothing is streamed, so a tool call is an ordinary
+  request/response: easy to proxy, to time out and to drain.
+- `test_any_replica_answers_a_client_that_initialized_on_another` initializes against one
+  app instance and calls a tool on another; it fails if the transport becomes stateful
+  again.
+
+If a future tool needs progress notifications or sampling, it needs sessions again, and
+then also session affinity (or a shared event store) in Kubernetes.
 
 ### Kubernetes manifest highlights
 
@@ -741,26 +763,17 @@ npx @modelcontextprotocol/inspector
 **Claude Code**: `claude mcp add --transport http monsterdex http://127.0.0.1:8000/mcp`,
 then ask e.g. "what are Pikachu's weaknesses?".
 
-**curl**: an MCP session takes three requests (initialize, the `initialized`
-notification, then the calls), all carrying the `mcp-session-id` header the server returns:
+**curl**: the server is stateless (see [Stateless MCP transport](#stateless-mcp-transport)),
+so one request is enough. A real client still sends `initialize` first; it gets no
+`mcp-session-id` back, and no later call needs one.
 
 ```bash
-URL=http://127.0.0.1:8000/mcp
-ACCEPT='Accept: application/json, text/event-stream'
-JSON='Content-Type: application/json'
-
-SID=$(curl -s -D - -o /dev/null -X POST $URL -H "$ACCEPT" -H "$JSON" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"1"}}}' \
-  | grep -i mcp-session-id | cut -d' ' -f2 | tr -d '\r')
-
-curl -s -X POST $URL -H "$ACCEPT" -H "$JSON" -H "mcp-session-id: $SID" \
-  -d '{"jsonrpc":"2.0","method":"notifications/initialized"}'          # → HTTP 202
-
-curl -s -X POST $URL -H "$ACCEPT" -H "$JSON" -H "mcp-session-id: $SID" \
+curl -s -X POST http://127.0.0.1:8000/mcp \
+  -H 'Accept: application/json, text/event-stream' -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"pokemon_get_type","arguments":{"name_or_id":"Electric"}}}'
 ```
 
-The response is a Server-Sent Event: the JSON-RPC result is on the `data:` line. Use
+The response is plain JSON (`Content-Type: application/json`), not a Server-Sent Event. Use
 `"method":"tools/list"` to see every tool with its input schema.
 
 ### Automated tests
