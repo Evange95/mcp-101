@@ -1,5 +1,8 @@
 """Generic cache and retry policy, exercised with plain values: no Pokédex types involved."""
 
+from collections.abc import Awaitable
+
+import anyio
 import pytest
 from tenacity import wait_none
 
@@ -113,3 +116,135 @@ async def test_retry_policy_re_raises_the_last_error_after_the_last_attempt():
 def test_retry_policy_needs_at_least_one_attempt():
     with pytest.raises(ValueError, match="attempts"):
         RetryPolicy(retry_if=lambda _: True, attempts=0)
+
+
+class Hinted(Exception):
+    """A transient error carrying the wait the upstream asked for."""
+
+    def __init__(self, retry_after: float | None) -> None:
+        super().__init__("HTTP 429")
+        self.retry_after = retry_after
+
+
+def hint(error: BaseException) -> float | None:
+    return error.retry_after if isinstance(error, Hinted) else None
+
+
+async def test_retry_policy_waits_at_least_what_the_upstream_asked_for():
+    probe = RecordingWaits()
+    policy = RetryPolicy(
+        retry_if=lambda e: isinstance(e, Hinted),
+        retry_after=hint,
+        wait=wait_none(),
+        probe=probe,
+    )
+
+    assert await policy.call(Loader(Hinted(0.05))) == "value #2"
+    assert probe.waits == [0.05]
+
+
+async def test_retry_policy_stops_before_a_wait_that_would_exceed_the_budget():
+    loader = Loader(Hinted(5.0), Hinted(5.0))
+    policy = RetryPolicy(
+        retry_if=lambda e: isinstance(e, Hinted), retry_after=hint, budget_seconds=1.0
+    )
+
+    with pytest.raises(Hinted):
+        await policy.call(loader)
+
+    assert loader.calls == 1  # a 5 s Retry-After does not fit in a 1 s budget: give up now
+
+
+def test_retry_policy_rejects_a_non_positive_budget():
+    with pytest.raises(ValueError, match="budget_seconds"):
+        RetryPolicy(retry_if=lambda e: True, budget_seconds=0)
+
+
+class RecordingWaits:
+    def __init__(self) -> None:
+        self.waits: list[float] = []
+
+    def retry_scheduled(self, *, attempt: int, reason: str, wait_seconds: float) -> None:
+        self.waits.append(wait_seconds)
+
+
+class GatedLoader:
+    """A load that only finishes when the test says so, to hold many callers in flight."""
+
+    def __init__(self, failure: Exception | None = None) -> None:
+        self.calls = 0
+        self.release = anyio.Event()
+        self._failure = failure
+
+    async def __call__(self) -> str:
+        self.calls += 1
+        await self.release.wait()
+        if self._failure is not None:
+            raise self._failure
+        return "value"
+
+
+async def test_concurrent_misses_share_one_load():
+    probe = RecordingAdapterProbe()
+    cache = TtlLruCache(ttl_seconds=60, max_entries=10, probe=probe)
+    loader = GatedLoader()
+    results: list[str] = []
+
+    async with anyio.create_task_group() as group:
+        for _ in range(10):
+            group.start_soon(lambda: append(results, cache.get_or_load(("pokemon", "x"), loader)))
+        await anyio.wait_all_tasks_blocked()
+        loader.release.set()
+
+    assert loader.calls == 1
+    assert results == ["value"] * 10
+    assert probe.events == ["miss pokemon"] + ["hit pokemon"] * 9
+
+
+async def test_a_cancelled_caller_does_not_cancel_the_shared_load():
+    cache = TtlLruCache(ttl_seconds=60, max_entries=10)
+    loader = GatedLoader()
+    results: list[str] = []
+
+    first = anyio.CancelScope()
+
+    async def cancelled_caller() -> None:
+        with first:
+            await cache.get_or_load(("pokemon", "x"), loader)
+
+    async with anyio.create_task_group() as group:
+        group.start_soon(cancelled_caller)
+        group.start_soon(lambda: append(results, cache.get_or_load(("pokemon", "x"), loader)))
+        await anyio.wait_all_tasks_blocked()
+        first.cancel()
+        loader.release.set()
+
+    assert first.cancel_called
+    assert loader.calls == 1
+    assert results == ["value"]  # the other caller still got the shared load's value
+
+
+async def test_a_shared_failure_reaches_every_caller_and_is_not_cached():
+    cache = TtlLruCache(ttl_seconds=60, max_entries=10)
+    loader = GatedLoader(Transient("HTTP 503"))
+    errors: list[BaseException] = []
+
+    async def call() -> None:
+        try:
+            await cache.get_or_load(("pokemon", "x"), loader)
+        except Transient as exc:
+            errors.append(exc)
+
+    async with anyio.create_task_group() as group:
+        group.start_soon(call)
+        group.start_soon(call)
+        await anyio.wait_all_tasks_blocked()
+        loader.release.set()
+
+    assert len(errors) == 2
+    assert loader.calls == 1
+    assert await cache.get_or_load(("pokemon", "x"), Loader()) == "value #1"  # tried again
+
+
+async def append(results: list[str], pending: Awaitable[str]) -> None:
+    results.append(await pending)

@@ -48,6 +48,7 @@ def build_repository(
         RetryingDigimonRepository(
             DigiApiRepository(http, probe=probes.digiapi),
             attempts=settings.retry_attempts,
+            budget_seconds=settings.retry_budget_seconds,
             probe=probes.retry,
         ),
         ttl_seconds=settings.cache_ttl_seconds,
@@ -66,6 +67,7 @@ class DigimonModule:
         self._http = platform.http_client(
             base_url=settings.digimon_base_url,
             timeout=settings.http_timeout_seconds,
+            connect_timeout=settings.http_connect_timeout_seconds,
             headers={"User-Agent": USER_AGENT},
             auth=platform.bearer_auth(self._tokens) if self._tokens is not None else None,
         )

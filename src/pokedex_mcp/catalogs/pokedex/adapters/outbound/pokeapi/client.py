@@ -31,6 +31,7 @@ from pokedex_mcp.catalogs.pokedex.domain.models import (
     PokemonSummary,
     PokemonType,
 )
+from pokedex_mcp.platform.upstream.http import retry_after_seconds
 
 INDEX_LIMIT = 100_000
 
@@ -101,7 +102,9 @@ class PokeApiRepository:
                 response.is_server_error or response.status_code == httpx.codes.TOO_MANY_REQUESTS
             )
             raise PokedexUnavailable(
-                f"PokeAPI returned HTTP {response.status_code}", retryable=retryable
+                f"PokeAPI returned HTTP {response.status_code}",
+                retryable=retryable,
+                retry_after=retry_after_seconds(response),
             )
 
         try:

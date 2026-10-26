@@ -25,6 +25,7 @@ from pokedex_mcp.catalogs.digimon.domain.models import (
     DigimonSummary,
 )
 from pokedex_mcp.platform.upstream.auth import TokenUnavailable
+from pokedex_mcp.platform.upstream.http import retry_after_seconds
 
 UPSTREAM = "digi-api"
 # digi-api accepts big pages: today one call returns all ~1,500 names.
@@ -109,7 +110,9 @@ class DigiApiRepository:
                 response.is_server_error or response.status_code == httpx.codes.TOO_MANY_REQUESTS
             )
             raise DigimonUnavailable(
-                f"{UPSTREAM} returned HTTP {response.status_code}", retryable=retryable
+                f"{UPSTREAM} returned HTTP {response.status_code}",
+                retryable=retryable,
+                retry_after=retry_after_seconds(response),
             )
 
         try:

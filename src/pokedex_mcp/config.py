@@ -11,10 +11,15 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="POKEDEX_", frozen=True)
 
     pokeapi_base_url: str = "https://pokeapi.co/api/v2"
-    http_timeout_seconds: float = Field(default=10.0, gt=0)
-    cache_ttl_seconds: float = Field(default=3600.0, gt=0)
+    # Read/write timeout of one upstream request; connecting has its own, shorter one.
+    http_timeout_seconds: float = Field(default=5.0, gt=0)
+    http_connect_timeout_seconds: float = Field(default=2.0, gt=0)
+    # Catalog data is static reference data: a day is safe, and the name indexes are big.
+    cache_ttl_seconds: float = Field(default=86400.0, gt=0)
     cache_max_entries: int = Field(default=512, ge=1)
     retry_attempts: int = Field(default=3, ge=1)
+    # No retry starts, and no backoff is slept, past this many seconds into a call.
+    retry_budget_seconds: float = Field(default=8.0, gt=0)
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
     allowed_hosts: Annotated[list[str], NoDecode] = Field(default_factory=list)

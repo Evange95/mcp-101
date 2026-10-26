@@ -25,6 +25,10 @@ def _reason(exc: BaseException) -> str:
     return exc.reason if isinstance(exc, PokedexUnavailable) else str(exc)
 
 
+def _retry_after(exc: BaseException) -> float | None:
+    return exc.retry_after if isinstance(exc, PokedexUnavailable) else None
+
+
 class RetryingPokedexRepository:
     """Retries only transient `PokedexUnavailable` errors; NotFound and the like pass through."""
 
@@ -33,12 +37,19 @@ class RetryingPokedexRepository:
         inner: PokedexRepository,
         *,
         attempts: int = 3,
+        budget_seconds: float | None = None,
         wait: wait_base | None = None,
         probe: RetryProbe | None = None,
     ) -> None:
         self._inner = inner
         self._policy = RetryPolicy(
-            retry_if=_is_retryable, attempts=attempts, reason=_reason, wait=wait, probe=probe
+            retry_if=_is_retryable,
+            attempts=attempts,
+            reason=_reason,
+            retry_after=_retry_after,
+            budget_seconds=budget_seconds,
+            wait=wait,
+            probe=probe,
         )
 
     async def get_pokemon(self, key: str) -> Pokemon:

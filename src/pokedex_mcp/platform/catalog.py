@@ -45,6 +45,7 @@ class Platform:
         *,
         base_url: str,
         timeout: float,
+        connect_timeout: float | None = None,
         headers: Mapping[str, str],
         auth: httpx.Auth | None = None,
     ) -> httpx.AsyncClient:
@@ -53,7 +54,10 @@ class Platform:
         Pass `auth=self.bearer_auth(tokens)` for an upstream that needs a service token.
         """
         client = httpx.AsyncClient(
-            base_url=base_url, timeout=timeout, headers=dict(headers), auth=auth
+            base_url=base_url,
+            timeout=httpx.Timeout(timeout, connect=connect_timeout or timeout),
+            headers=dict(headers),
+            auth=auth,
         )
         if self.telemetry is not None:
             self.telemetry.instrument_http(client)

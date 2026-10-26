@@ -21,9 +21,12 @@ class NotFound(DigimonError):
 class DigimonUnavailable(DigimonError):
     """The Digimon data source could not answer; `retryable` tells if trying again may help."""
 
-    def __init__(self, reason: str, *, retryable: bool = True) -> None:
+    def __init__(
+        self, reason: str, *, retryable: bool = True, retry_after: float | None = None
+    ) -> None:
         self.reason = reason
         self.retryable = retryable
+        self.retry_after = retry_after  # seconds the source asked us to wait, if it said
         super().__init__(f"Digimon data source unavailable: {reason}")
 
 

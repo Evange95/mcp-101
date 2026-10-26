@@ -1,5 +1,6 @@
 """In-memory TTL + LRU cache for async loaders, observable through a CacheProbe."""
 
+import asyncio
 import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Hashable
@@ -32,7 +33,11 @@ class NullCacheProbe:
 class TtlLruCache:
     """Caches successful loads for `ttl_seconds`, keeping at most `max_entries` (LRU).
 
-    Failed loads are not cached: the next call tries again.
+    Failed loads are not cached: the next call tries again. Concurrent misses on one key
+    share a single load ("single flight"): ten parallel calls for "pikachu" cause one
+    upstream request. Callers that join a load in flight count as hits, since they cost
+    the upstream nothing. The load runs in its own task, so a caller that is cancelled
+    (e.g. its client went away) never cancels the load for the others.
     """
 
     def __init__(
@@ -52,6 +57,7 @@ class TtlLruCache:
         self._clock = clock
         self._probe = probe or NullCacheProbe()
         self._entries: OrderedDict[CacheKey, tuple[float, object]] = OrderedDict()
+        self._loading: dict[CacheKey, asyncio.Task[object]] = {}
 
     async def get_or_load[T](self, key: CacheKey, load: Callable[[], Awaitable[T]]) -> T:
         resource = key[0]
@@ -63,8 +69,18 @@ class TtlLruCache:
                 self._probe.hit(resource)
                 return cast(T, value)
             del self._entries[key]
-        self._probe.miss(resource, expired=entry is not None)
 
+        task = self._loading.get(key)
+        if task is not None:
+            self._probe.hit(resource)
+        else:
+            self._probe.miss(resource, expired=entry is not None)
+            task = asyncio.create_task(self._load(key, load))
+            self._loading[key] = task
+            task.add_done_callback(lambda done: self._finished(key, done))
+        return cast(T, await asyncio.shield(task))
+
+    async def _load(self, key: CacheKey, load: Callable[[], Awaitable[object]]) -> object:
         loaded = await load()
         self._entries[key] = (self._clock() + self._ttl, loaded)
         self._entries.move_to_end(key)
@@ -72,6 +88,12 @@ class TtlLruCache:
             evicted_key, _ = self._entries.popitem(last=False)
             self._probe.evicted(evicted_key[0])
         return loaded
+
+    def _finished(self, key: CacheKey, task: asyncio.Task[object]) -> None:
+        del self._loading[key]
+        if not task.cancelled():
+            # Mark the error as retrieved: if every caller was cancelled, nobody awaits it.
+            task.exception()
 
 
 if TYPE_CHECKING:

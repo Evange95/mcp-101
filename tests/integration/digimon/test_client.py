@@ -232,3 +232,12 @@ async def test_the_index_reads_every_page_of_names(repository, digiapi):
         {"page": "0", "pageSize": "5000"},
         {"page": "1", "pageSize": "5000"},
     ]
+
+
+async def test_a_429_carries_the_wait_digiapi_asked_for(repository, digiapi):
+    digiapi.get("/digimon/agumon").respond(429, headers={"Retry-After": "4"})
+
+    with pytest.raises(DigimonUnavailable) as raised:
+        await repository.get_digimon("agumon")
+
+    assert (raised.value.retryable, raised.value.retry_after) == (True, 4.0)

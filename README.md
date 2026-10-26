@@ -165,6 +165,27 @@ src/pokedex_mcp/
 
 The repository chain is `Cached(Retrying(PokeApi))`: cache hits never pay for retries.
 
+**Bounded latency.** A slow or flapping upstream must not hold a tool call for a minute.
+
+| Mechanism | Where | Default |
+|---|---|---|
+| Connect timeout, then read/write timeout per request | `Platform.http_client` (`httpx.Timeout`) | 2 s / 5 s |
+| At most N attempts | `RetryPolicy(attempts=...)` | 3 |
+| Retry budget: no retry starts and no backoff is slept past it | `RetryPolicy(budget_seconds=...)` (tenacity `stop_before_delay`) | 8 s |
+| `Retry-After` on 429/503 is a minimum wait, not ignored | adapters read it (`platform/upstream/http.py`), the domain error carries `retry_after`, the policy waits at least that long, or gives up if it does not fit in the budget | — |
+
+So one upstream call takes at most about the budget plus one attempt (8 + 7 s), instead
+of attempts × (timeout + backoff) as before (≈ 35 s). That stays under the 20 s
+`POKEDEX_SHUTDOWN_TIMEOUT_SECONDS` in the common case and under typical MCP client
+timeouts. `pokemon_get_evolution_chain` makes two upstream calls in a row (species, then
+chain), so its worst case is twice that on a cold cache.
+
+**One upstream call per key, even under load.** `TtlLruCache` is single-flight: when ten
+tool calls miss the cache for `pokemon:pikachu` at once, one request goes out and the
+other nine wait for it (and count as cache hits). The load runs in its own task, so a
+client that disconnects does not cancel it for the others. Failures are shared with the
+callers that were waiting, and not cached.
+
 **Why the decorators are this thin.** Caching and retrying are the same for every data
 source, but each port has its own methods. So the mechanism lives once in
 `platform/resilience` (`TtlLruCache.get_or_load`, `RetryPolicy.call`), and each repository
@@ -254,7 +275,7 @@ POKEDEX_DIGIMON_ENABLED=true uv run pokedex-mcp
   mirror or a gateway that does require one (see Upstream authentication). The
   `digi-api` name is what token probes and metrics report as `upstream.name`.
 - **Same settings for timeout, cache and retries** as the Pokédex
-  (`POKEDEX_HTTP_TIMEOUT_SECONDS`, `POKEDEX_CACHE_*`, `POKEDEX_RETRY_ATTEMPTS`). Each
+  (`POKEDEX_HTTP_*`, `POKEDEX_CACHE_*`, `POKEDEX_RETRY_*`). Each
   catalog still has its own cache instance and its own HTTP client.
 
 **Errors the model sees** (as MCP tool errors, `isError: true`):
@@ -750,10 +771,12 @@ claude mcp add --transport http monsterdex http://127.0.0.1:8000/mcp
 | Variable | Default |
 |---|---|
 | `POKEDEX_POKEAPI_BASE_URL` | `https://pokeapi.co/api/v2` |
-| `POKEDEX_HTTP_TIMEOUT_SECONDS` | `10` |
-| `POKEDEX_CACHE_TTL_SECONDS` | `3600` |
+| `POKEDEX_HTTP_TIMEOUT_SECONDS` | `5` — read/write timeout of one upstream request |
+| `POKEDEX_HTTP_CONNECT_TIMEOUT_SECONDS` | `2` |
+| `POKEDEX_CACHE_TTL_SECONDS` | `86400` — catalog data is static; the name indexes are reused for a day |
 | `POKEDEX_CACHE_MAX_ENTRIES` | `512` |
 | `POKEDEX_RETRY_ATTEMPTS` | `3` |
+| `POKEDEX_RETRY_BUDGET_SECONDS` | `8` — no retry starts, and no backoff (or `Retry-After`) is slept, past this point of a call |
 | `POKEDEX_HOST` / `POKEDEX_PORT` | `127.0.0.1` / `8000` |
 | `POKEDEX_ALLOWED_HOSTS` | empty — extra `Host` headers accepted by `/mcp` (comma-separated, `host:*` allowed) |
 | `POKEDEX_LOG_LEVEL` | `INFO` — level of the `pokedex_mcp` loggers (`DEBUG` shows cache hits and found lookups) |

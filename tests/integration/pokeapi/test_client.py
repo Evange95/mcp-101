@@ -246,3 +246,12 @@ async def test_unexpected_payload_is_reported_to_the_probe(pokeapi):
             await PokeApiRepository(http, probe=probe).get_pokemon("pikachu")
 
     assert probe.events == ["unexpected payload Pokémon pokemon/pikachu"]
+
+
+async def test_a_429_carries_the_wait_pokeapi_asked_for(repository, pokeapi):
+    pokeapi.get("/pokemon/pikachu").respond(429, headers={"Retry-After": "2"})
+
+    with pytest.raises(PokedexUnavailable) as raised:
+        await repository.get_pokemon("pikachu")
+
+    assert (raised.value.retryable, raised.value.retry_after) == (True, 2.0)

@@ -29,6 +29,7 @@ def build_repository(
         RetryingPokedexRepository(
             PokeApiRepository(http, probe=probes.pokeapi),
             attempts=settings.retry_attempts,
+            budget_seconds=settings.retry_budget_seconds,
             probe=probes.retry,
         ),
         ttl_seconds=settings.cache_ttl_seconds,
@@ -46,6 +47,7 @@ class PokedexModule:
         self._http = platform.http_client(
             base_url=settings.pokeapi_base_url,
             timeout=settings.http_timeout_seconds,
+            connect_timeout=settings.http_connect_timeout_seconds,
             headers={"User-Agent": USER_AGENT},
         )
         repository = build_repository(self._http, settings, probes)

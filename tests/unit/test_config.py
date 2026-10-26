@@ -8,8 +8,9 @@ def test_defaults():
     settings = Settings()
 
     assert settings.pokeapi_base_url == "https://pokeapi.co/api/v2"
-    assert settings.http_timeout_seconds == 10
-    assert settings.cache_ttl_seconds == 3600
+    assert (settings.http_timeout_seconds, settings.http_connect_timeout_seconds) == (5, 2)
+    assert settings.cache_ttl_seconds == 86400
+    assert settings.retry_budget_seconds == 8
     assert settings.cache_max_entries == 512
     assert settings.retry_attempts == 3
     assert (settings.host, settings.port) == ("127.0.0.1", 8000)

@@ -54,7 +54,10 @@ Inside each catalog (paths below are relative to `catalogs/pokedex/`), hexagonal
   Decorators stay one line per port method and delegate to `platform/resilience`
   (`TtlLruCache.get_or_load`, `RetryPolicy.call`). Never reimplement caching or retry
   logic in a decorator. The decorator only chooses the cache key and the domain's
-  `retry_if` / `reason` functions.
+  `retry_if` / `reason` / `retry_after` functions, and passes `budget_seconds`.
+  Adapters put `retry_after_seconds(response)` (`platform/upstream/http.py`) on the
+  catalog's "unavailable" error. The cache is single-flight: never add a lock or a second
+  cache in front of it.
   When you add a method to `PokedexRepository`, add it to every implementation, the fake in
   `tests/fakes.py` and `REPOSITORY_OPERATIONS`.
 - `platform/catalog.py`: the `CatalogModule` contract (name, instructions, register_tools,
