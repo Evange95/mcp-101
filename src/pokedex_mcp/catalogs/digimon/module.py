@@ -55,6 +55,7 @@ def build_repository(
         ),
         ttl_seconds=upstream.cache_ttl_seconds,
         max_entries=upstream.cache_max_entries,
+        not_found_ttl_seconds=upstream.cache_not_found_ttl_seconds,
         probe=probes.cache,
     )
 

@@ -58,7 +58,8 @@ Inside each catalog (paths below are relative to `catalogs/pokedex/`), hexagonal
   `retry_if` / `reason` / `retry_after` functions, and passes `budget_seconds`.
   Adapters put `retry_after_seconds(response)` (`platform/upstream/http.py`) on the
   catalog's "unavailable" error. The cache is single-flight: never add a lock or a second
-  cache in front of it.
+  cache in front of it. Cache decorators pass `remember_error` for the domain's `NotFound`
+  only (with `not_found_ttl_seconds`): never remember an "unavailable" error.
   When you add a method to `PokedexRepository`, add it to every implementation, the fake in
   `tests/fakes.py` and `REPOSITORY_OPERATIONS`.
 - `platform/catalog.py`: the `CatalogModule` contract (name, tool_prefix, instructions,

@@ -193,6 +193,13 @@ other nine wait for it (and count as cache hits). The load runs in its own task,
 client that disconnects does not cancel it for the others. Failures are shared with the
 callers that were waiting, and not cached.
 
+**"Not found" is remembered, briefly.** A model that insists on a name that does not exist
+(`missingno`, a dub name) would otherwise cost one upstream call per attempt. The
+decorators tell the cache that the domain's `NotFound` is a definitive answer
+(`remember_error`), so it is kept for `POKEDEX_CACHE_NOT_FOUND_TTL_SECONDS` (5 minutes,
+much shorter than the 24 h of real data, in case the resource is added upstream) and
+raised again as a cache hit. Every other error is still never cached. `0` disables it.
+
 **Why the decorators are this thin.** Caching and retrying are the same for every data
 source, but each port has its own methods. So the mechanism lives once in
 `platform/resilience` (`TtlLruCache.get_or_load`, `RetryPolicy.call`), and each repository
@@ -800,6 +807,7 @@ claude mcp add --transport http monsterdex http://127.0.0.1:8000/mcp
 | `POKEDEX_HTTP_CONNECT_TIMEOUT_SECONDS` | `2` |
 | `POKEDEX_CACHE_TTL_SECONDS` | `86400` — catalog data is static; the name indexes are reused for a day |
 | `POKEDEX_CACHE_MAX_ENTRIES` | `512` |
+| `POKEDEX_CACHE_NOT_FOUND_TTL_SECONDS` | `300` — how long "not found" is remembered (`0` disables) |
 | `POKEDEX_RETRY_ATTEMPTS` | `3` |
 | `POKEDEX_RETRY_BUDGET_SECONDS` | `8` — no retry starts, and no backoff (or `Retry-After`) is slept, past this point of a call |
 | `POKEDEX_HOST` / `POKEDEX_PORT` | `127.0.0.1` / `8000` |

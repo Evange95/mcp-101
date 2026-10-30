@@ -13,6 +13,7 @@ def test_defaults():
     assert upstream.cache_ttl_seconds == 86400
     assert upstream.retry_budget_seconds == 8
     assert upstream.cache_max_entries == 512
+    assert upstream.cache_not_found_ttl_seconds == 300
     assert upstream.retry_attempts == 3
     assert (settings.host, settings.port) == ("127.0.0.1", 8000)
     assert settings.allowed_hosts == []

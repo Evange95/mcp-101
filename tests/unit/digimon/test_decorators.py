@@ -81,3 +81,16 @@ async def test_retries_are_announced_with_the_domain_reason():
     await retrying(inner, probe).get_digimon("agumon")
 
     assert probe.events == ["retry after attempt 1: digi-api returned HTTP 503"]
+
+
+async def test_not_found_is_remembered_for_its_ttl():
+    inner = full_repository()
+    repository = CachedDigimonRepository(
+        inner, ttl_seconds=60, max_entries=10, not_found_ttl_seconds=30
+    )
+
+    for _ in range(2):
+        with pytest.raises(NotFound):
+            await repository.get_digimon("nobody")
+
+    assert inner.calls == ["get_digimon:nobody"]

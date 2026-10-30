@@ -1,7 +1,7 @@
 import pytest
 
 from pokedex_mcp.catalogs.pokedex.adapters.outbound.cache import CachedPokedexRepository
-from pokedex_mcp.catalogs.pokedex.domain.errors import PokedexUnavailable
+from pokedex_mcp.catalogs.pokedex.domain.errors import NotFound, PokedexUnavailable
 from tests.builders import make_pokemon
 from tests.fakes import (
     REPOSITORY_OPERATIONS,
@@ -139,3 +139,20 @@ async def test_probe_hears_misses_hits_expiries_and_evictions():
         "miss type",
         "evicted pokemon",
     ]
+
+
+async def test_not_found_is_remembered_but_only_for_its_shorter_ttl():
+    inner = full_repository()
+    clock = FakeClock()
+    repository = CachedPokedexRepository(
+        inner, ttl_seconds=3600, max_entries=10, not_found_ttl_seconds=30, clock=clock
+    )
+
+    for _ in range(2):
+        with pytest.raises(NotFound):
+            await repository.get_pokemon("missingno")
+    clock.advance(31)
+    with pytest.raises(NotFound):
+        await repository.get_pokemon("missingno")
+
+    assert inner.calls == ["get_pokemon:missingno"] * 2

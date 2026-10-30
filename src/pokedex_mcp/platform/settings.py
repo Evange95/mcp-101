@@ -17,6 +17,8 @@ class UpstreamSettings(BaseSettings):
     # Catalog data is static reference data: a day is safe, and the name indexes are big.
     cache_ttl_seconds: float = Field(default=86400.0, gt=0)
     cache_max_entries: int = Field(default=512, ge=1)
+    # How long "not found" is remembered (0 disables): short, since a resource may appear.
+    cache_not_found_ttl_seconds: float = Field(default=300.0, ge=0)
     retry_attempts: int = Field(default=3, ge=1)
     # No retry starts, and no backoff is slept, past this many seconds into a call.
     retry_budget_seconds: float = Field(default=8.0, gt=0)

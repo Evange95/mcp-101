@@ -248,3 +248,65 @@ async def test_a_shared_failure_reaches_every_caller_and_is_not_cached():
 
 async def append(results: list[str], pending: Awaitable[str]) -> None:
     results.append(await pending)
+
+
+class Missing(Exception):
+    """A definitive answer from the upstream ("not found"), worth remembering."""
+
+
+def remembering(clock: Clock, probe: RecordingAdapterProbe | None = None) -> TtlLruCache:
+    return TtlLruCache(
+        ttl_seconds=3600,
+        max_entries=10,
+        remember_error=lambda e: isinstance(e, Missing),
+        error_ttl_seconds=60,
+        clock=clock,
+        probe=probe,
+    )
+
+
+async def test_a_remembered_error_is_raised_again_without_calling_the_upstream():
+    clock, probe = Clock(), RecordingAdapterProbe()
+    cache = remembering(clock, probe)
+    loader = Loader(Missing("missingno"))
+
+    for _ in range(3):
+        with pytest.raises(Missing, match="missingno"):
+            await cache.get_or_load(("pokemon", "missingno"), loader)
+
+    assert loader.calls == 1
+    assert probe.events == ["miss pokemon", "hit pokemon", "hit pokemon"]
+
+
+async def test_a_remembered_error_expires_after_its_own_shorter_ttl():
+    clock = Clock()
+    cache = remembering(clock)
+    loader = Loader(Missing("not yet"))
+    with pytest.raises(Missing):
+        await cache.get_or_load(("pokemon", "new"), loader)
+
+    clock.now = 61
+
+    assert await cache.get_or_load(("pokemon", "new"), loader) == "value #2"
+
+
+async def test_other_errors_are_never_remembered():
+    cache = remembering(Clock())
+    loader = Loader(Transient("HTTP 503"))
+
+    with pytest.raises(Transient):
+        await cache.get_or_load(("pokemon", "x"), loader)
+
+    assert await cache.get_or_load(("pokemon", "x"), loader) == "value #2"
+
+
+async def test_a_zero_error_ttl_remembers_nothing():
+    cache = TtlLruCache(
+        ttl_seconds=60, max_entries=10, remember_error=lambda e: True, error_ttl_seconds=0
+    )
+    loader = Loader(Missing("x"))
+
+    with pytest.raises(Missing):
+        await cache.get_or_load(("pokemon", "x"), loader)
+
+    assert await cache.get_or_load(("pokemon", "x"), loader) == "value #2"

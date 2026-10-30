@@ -4,6 +4,7 @@ import time
 from typing import TYPE_CHECKING
 
 from pokedex_mcp.catalogs.digimon.application.ports import DigimonRepository
+from pokedex_mcp.catalogs.digimon.domain.errors import NotFound
 from pokedex_mcp.catalogs.digimon.domain.models import (
     Digimon,
     DigimonFilter,
@@ -11,6 +12,10 @@ from pokedex_mcp.catalogs.digimon.domain.models import (
     DigimonSummary,
 )
 from pokedex_mcp.platform.resilience.cache import CacheProbe, Clock, TtlLruCache
+
+
+def _is_not_found(exc: BaseException) -> bool:
+    return isinstance(exc, NotFound)
 
 
 class CachedDigimonRepository:
@@ -22,12 +27,18 @@ class CachedDigimonRepository:
         *,
         ttl_seconds: float,
         max_entries: int,
+        not_found_ttl_seconds: float = 0.0,
         clock: Clock = time.monotonic,
         probe: CacheProbe | None = None,
     ) -> None:
         self._inner = inner
         self._cache = TtlLruCache(
-            ttl_seconds=ttl_seconds, max_entries=max_entries, clock=clock, probe=probe
+            ttl_seconds=ttl_seconds,
+            max_entries=max_entries,
+            remember_error=_is_not_found,
+            error_ttl_seconds=not_found_ttl_seconds,
+            clock=clock,
+            probe=probe,
         )
 
     async def get_digimon(self, key: str) -> Digimon:

@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable, Hashable
 from typing import TYPE_CHECKING, Protocol, cast
 
 type Clock = Callable[[], float]
+type ErrorPredicate = Callable[[BaseException], bool]
 # The first element names the resource kind ("pokemon", "digimon", ...), reported to the probe.
 type CacheKey = tuple[str, *tuple[Hashable, ...]]
 
@@ -30,10 +31,22 @@ class NullCacheProbe:
         pass
 
 
+class _Remembered:
+    """A cached definitive error, raised again instead of returned."""
+
+    __slots__ = ("error",)
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+
 class TtlLruCache:
     """Caches successful loads for `ttl_seconds`, keeping at most `max_entries` (LRU).
 
-    Failed loads are not cached: the next call tries again. Concurrent misses on one key
+    Failed loads are not cached, so the next call tries again, except the errors the
+    caller marks as definitive answers (`remember_error`, e.g. a domain "not found"): those
+    are kept for `error_ttl_seconds` and raised again, so a model that insists on a name
+    that does not exist does not hit the upstream every time. Concurrent misses on one key
     share a single load ("single flight"): ten parallel calls for "pikachu" cause one
     upstream request. Callers that join a load in flight count as hits, since they cost
     the upstream nothing. The load runs in its own task, so a caller that is cancelled
@@ -45,14 +58,20 @@ class TtlLruCache:
         *,
         ttl_seconds: float,
         max_entries: int,
+        remember_error: ErrorPredicate | None = None,
+        error_ttl_seconds: float = 0.0,
         clock: Clock = time.monotonic,
         probe: CacheProbe | None = None,
     ) -> None:
         if ttl_seconds <= 0:
             raise ValueError("ttl_seconds must be > 0")
+        if error_ttl_seconds < 0:
+            raise ValueError("error_ttl_seconds must be >= 0")
         if max_entries < 1:
             raise ValueError("max_entries must be >= 1")
         self._ttl = ttl_seconds
+        self._remember_error = remember_error if error_ttl_seconds > 0 else None
+        self._error_ttl = error_ttl_seconds
         self._max_entries = max_entries
         self._clock = clock
         self._probe = probe or NullCacheProbe()
@@ -67,6 +86,8 @@ class TtlLruCache:
             if self._clock() < expires_at:
                 self._entries.move_to_end(key)
                 self._probe.hit(resource)
+                if isinstance(value, _Remembered):
+                    raise value.error.with_traceback(None)
                 return cast(T, value)
             del self._entries[key]
 
@@ -81,13 +102,21 @@ class TtlLruCache:
         return cast(T, await asyncio.shield(task))
 
     async def _load(self, key: CacheKey, load: Callable[[], Awaitable[object]]) -> object:
-        loaded = await load()
-        self._entries[key] = (self._clock() + self._ttl, loaded)
+        try:
+            loaded = await load()
+        except Exception as exc:
+            if self._remember_error is not None and self._remember_error(exc):
+                self._store(key, _Remembered(exc), self._error_ttl)
+            raise
+        self._store(key, loaded, self._ttl)
+        return loaded
+
+    def _store(self, key: CacheKey, value: object, ttl: float) -> None:
+        self._entries[key] = (self._clock() + ttl, value)
         self._entries.move_to_end(key)
         while len(self._entries) > self._max_entries:
             evicted_key, _ = self._entries.popitem(last=False)
             self._probe.evicted(evicted_key[0])
-        return loaded
 
     def _finished(self, key: CacheKey, task: asyncio.Task[object]) -> None:
         del self._loading[key]
