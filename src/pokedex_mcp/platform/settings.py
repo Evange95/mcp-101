@@ -1,6 +1,6 @@
 """Settings every catalog shares for calling its upstream: timeouts, cache, retries.
 
-Read from the same `POKEDEX_*` variables as before. Each catalog gets them through its
+Read from the same `MONSTERDEX_*` variables as before. Each catalog gets them through its
 `Platform`, never by importing the app's configuration.
 """
 
@@ -9,7 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class UpstreamSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="POKEDEX_", frozen=True)
+    model_config = SettingsConfigDict(env_prefix="MONSTERDEX_", frozen=True)
 
     # Read/write timeout of one upstream request; connecting has its own, shorter one.
     http_timeout_seconds: float = Field(default=5.0, gt=0)

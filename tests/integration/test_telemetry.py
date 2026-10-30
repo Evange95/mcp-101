@@ -41,7 +41,7 @@ def telemetry() -> Iterator[Telemetry]:
 def http(telemetry: Telemetry) -> Iterator[TestClient]:
     SPANS.clear()
     LOGS.clear()
-    app = create_app(Settings(pokedex=PokedexSettings(pokeapi_base_url=BASE_URL)), telemetry)
+    app = create_app(Settings(pokedex=PokedexSettings(base_url=BASE_URL)), telemetry)
     with TestClient(app, base_url="http://localhost:8000") as client:
         yield client
 

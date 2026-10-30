@@ -1,5 +1,7 @@
 """Composition root: builds the catalog modules and hosts their MCP tools in FastAPI."""
 
+import logging
+import os
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, asynccontextmanager
 
@@ -9,7 +11,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from pokedex_mcp.catalogs.digimon.module import DigimonModule
 from pokedex_mcp.catalogs.pokedex.module import PokedexModule
-from pokedex_mcp.config import Settings
+from pokedex_mcp.config import Settings, legacy_variables
 from pokedex_mcp.platform.catalog import (
     CatalogModule,
     Platform,
@@ -20,7 +22,11 @@ from pokedex_mcp.platform.health import ReadinessCheck, build_health_router
 from pokedex_mcp.platform.inbound.auth import FileClientTokens
 from pokedex_mcp.platform.lifecycle import Lifecycle
 from pokedex_mcp.platform.server import GracefulServer
-from pokedex_mcp.platform.telemetry.log import LoggingLifecycleProbe, configure_logging
+from pokedex_mcp.platform.telemetry.log import (
+    LOGGER_NAME,
+    LoggingLifecycleProbe,
+    configure_logging,
+)
 from pokedex_mcp.platform.telemetry.sdk import Telemetry
 
 LOCAL_HOSTS = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
@@ -89,6 +95,11 @@ def create_app(
 def run() -> None:
     settings = Settings()
     configure_logging(settings.log_level)
+    if legacy := legacy_variables(os.environ):
+        # Ignoring them silently would run an old deployment with defaults.
+        logging.getLogger(LOGGER_NAME).warning(
+            "ignored, renamed to MONSTERDEX_*: %s", ", ".join(legacy)
+        )
     telemetry = Telemetry.otlp() if settings.telemetry_enabled else None
     if telemetry is not None:
         telemetry.install()

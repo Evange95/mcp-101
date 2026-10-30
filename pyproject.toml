@@ -1,5 +1,5 @@
 [project]
-name = "pokedex-mcp"
+name = "monsterdex-mcp"
 version = "0.1.0"
 description = "MCP server exposing PokeAPI Pokédex data, hosted in FastAPI"
 readme = "README.md"
@@ -21,12 +21,16 @@ dependencies = [
 ]
 
 [project.scripts]
-pokedex-mcp = "pokedex_mcp.main:run"
-pokedex-mcp-token = "pokedex_mcp.platform.inbound.auth:main"
+monsterdex-mcp = "pokedex_mcp.main:run"
+monsterdex-token = "pokedex_mcp.platform.inbound.auth:main"
 
 [build-system]
 requires = ["uv_build>=0.12,<0.13"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+# The distribution is monsterdex-mcp; the import package keeps its original name.
+module-name = "pokedex_mcp"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

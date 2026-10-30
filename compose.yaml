@@ -1,14 +1,14 @@
 services:
-  pokedex-mcp:
+  monsterdex-mcp:
     build: .
-    image: pokedex-mcp:latest
+    image: monsterdex-mcp:latest
     ports:
       - "127.0.0.1:8000:8000"
     environment:
-      POKEDEX_CACHE_TTL_SECONDS: "3600"
-      POKEDEX_RETRY_ATTEMPTS: "3"
-      POKEDEX_TELEMETRY_ENABLED: "true"
-      POKEDEX_DIGIMON_ENABLED: "true"  # digi-api.com is public: no token needed locally
+      MONSTERDEX_CACHE_TTL_SECONDS: "3600"
+      MONSTERDEX_RETRY_ATTEMPTS: "3"
+      MONSTERDEX_TELEMETRY_ENABLED: "true"
+      MONSTERDEX_DIGIMON_ENABLED: "true"  # digi-api.com is public: no token needed locally
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-lgtm:4318"
     depends_on:
       - otel-lgtm
@@ -21,5 +21,5 @@ services:
     image: grafana/otel-lgtm:0.11.10
     ports:
       - "127.0.0.1:3000:3000"  # Grafana, admin/admin
-      - "127.0.0.1:4318:4318"  # OTLP/HTTP, for `uv run pokedex-mcp` outside compose
+      - "127.0.0.1:4318:4318"  # OTLP/HTTP, for `uv run monsterdex-mcp` outside compose
     restart: unless-stopped

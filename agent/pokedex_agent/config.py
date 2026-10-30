@@ -12,7 +12,7 @@ from pokedex_agent.policy import MCP_TOOL_PREFIX
 
 # Single MCP endpoint serving every catalog; tool names carry the catalog prefix.
 MCP_SERVER_NAME = "monsterdex"
-POKEDEX_TOOLS = (
+MONSTERDEX_TOOLS = (
     "pokemon_get",
     "pokemon_get_species",
     "pokemon_list",
@@ -20,7 +20,7 @@ POKEDEX_TOOLS = (
     "pokemon_get_evolution_chain",
     "pokemon_get_move",
 )
-# Served only when the server runs with POKEDEX_DIGIMON_ENABLED=true; allowing a tool the
+# Served only when the server runs with MONSTERDEX_DIGIMON_ENABLED=true; allowing a tool the
 # server does not expose is harmless (the model never sees it).
 DIGIMON_TOOLS = (
     "digimon_get",
@@ -77,8 +77,8 @@ class Settings:
         return cls(
             role=role,
             model=os.environ.get("POKEDEX_AGENT_MODEL", cls.model),
-            mcp_url=os.environ.get("POKEDEX_MCP_URL", cls.mcp_url),
-            mcp_token=os.environ.get("POKEDEX_MCP_TOKEN") or None,
+            mcp_url=os.environ.get("MONSTERDEX_MCP_URL", cls.mcp_url),
+            mcp_token=os.environ.get("MONSTERDEX_MCP_TOKEN") or None,
         )
 
 
@@ -96,7 +96,7 @@ def build_options(settings: Settings, guard: ToolGuard) -> ClaudeAgentOptions:
         mcp_servers={MCP_SERVER_NAME: mcp_server_config(settings)},
         strict_mcp_config=True,
         tools=[],
-        allowed_tools=[f"{MCP_TOOL_PREFIX}{tool}" for tool in (*POKEDEX_TOOLS, *DIGIMON_TOOLS)],
+        allowed_tools=[f"{MCP_TOOL_PREFIX}{tool}" for tool in (*MONSTERDEX_TOOLS, *DIGIMON_TOOLS)],
         disallowed_tools=list(BUILTIN_TOOLS),
         permission_mode="dontAsk",
         setting_sources=[],
@@ -112,7 +112,7 @@ def check_mcp_server(mcp_url: str, transport: httpx.BaseTransport | None = None)
             client.get(health_url).raise_for_status()
     except httpx.HTTPError as exc:
         raise SystemExit(
-            f"Pokédex MCP server not reachable at {health_url} ({exc}).\n"
-            "Start it from the repository root with `uv run pokedex-mcp` "
+            f"Monsterdex MCP server not reachable at {health_url} ({exc}).\n"
+            "Start it from the repository root with `uv run monsterdex-mcp` "
             "or `docker compose up -d`."
         ) from exc

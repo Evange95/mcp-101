@@ -31,9 +31,7 @@ def clients_file(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def http(clients_file: Path) -> Iterator[TestClient]:
-    settings = Settings(
-        pokedex=PokedexSettings(pokeapi_base_url=BASE_URL), auth_clients_file=clients_file
-    )
+    settings = Settings(pokedex=PokedexSettings(base_url=BASE_URL), auth_clients_file=clients_file)
     with TestClient(create_app(settings), base_url="http://localhost:8000") as client:
         yield client
 

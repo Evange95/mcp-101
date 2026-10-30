@@ -49,7 +49,7 @@ class PokedexModule:
 
     def __init__(self, settings: PokedexSettings, platform: Platform) -> None:
         probes = build_probes(platform)
-        self._http = platform.http_client(base_url=settings.pokeapi_base_url)
+        self._http = platform.http_client(base_url=settings.base_url)
         repository = build_repository(self._http, platform.upstream, probes)
         self._service = PokedexService(repository, probe=probes.pokedex, caller=ScopeCaller())
 

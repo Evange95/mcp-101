@@ -26,7 +26,7 @@ from opentelemetry.sdk.resources import SERVICE_NAME, SERVICE_VERSION, Resource
 from opentelemetry.sdk.trace import SpanProcessor, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-DEFAULT_SERVICE_NAME = "pokedex-mcp"
+DEFAULT_SERVICE_NAME = "monsterdex-mcp"
 SERVICE_VERSION_VALUE = "0.1.0"
 
 

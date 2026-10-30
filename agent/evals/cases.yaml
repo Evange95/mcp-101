@@ -5,7 +5,7 @@
 #   denied:   at least one tool call must be denied by the policy
 #   absent:   text that must NOT appear in the answer (e.g. data leaked from prior knowledge)
 # Questions are in Italian, so keywords accept both the PokeAPI (English) and Italian names.
-# The cases using digimon_* tools need the server started with POKEDEX_DIGIMON_ENABLED=true.
+# The cases using digimon_* tools need the server started with MONSTERDEX_DIGIMON_ENABLED=true.
 
 - id: trainer-pikachu-profile
   role: trainer

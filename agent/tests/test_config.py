@@ -8,7 +8,7 @@ from pokedex_agent.audit import AuditLog
 from pokedex_agent.config import (
     BUILTIN_TOOLS,
     DIGIMON_TOOLS,
-    POKEDEX_TOOLS,
+    MONSTERDEX_TOOLS,
     Settings,
     build_options,
     check_mcp_server,
@@ -31,7 +31,7 @@ def guard(tmp_path: Path) -> ToolGuard:
 def test_settings_read_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("POKEDEX_AGENT_ROLE", "professor")
     monkeypatch.setenv("POKEDEX_AGENT_MODEL", "claude-sonnet-5")
-    monkeypatch.setenv("POKEDEX_MCP_URL", "http://127.0.0.1:9000/mcp")
+    monkeypatch.setenv("MONSTERDEX_MCP_URL", "http://127.0.0.1:9000/mcp")
 
     assert Settings.from_env() == Settings(
         role="professor", model="claude-sonnet-5", mcp_url="http://127.0.0.1:9000/mcp"
@@ -41,7 +41,7 @@ def test_settings_read_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("POKEDEX_AGENT_ROLE", "trainer")
     monkeypatch.delenv("POKEDEX_AGENT_MODEL", raising=False)
-    monkeypatch.delenv("POKEDEX_MCP_URL", raising=False)
+    monkeypatch.delenv("MONSTERDEX_MCP_URL", raising=False)
 
     settings = Settings.from_env()
 
@@ -63,9 +63,9 @@ def test_options_expose_only_the_monsterdex_mcp_tools(guard: ToolGuard) -> None:
     assert set(BUILTIN_TOOLS) <= set(options.disallowed_tools)
     assert {"Bash", "Read", "Write", "Edit", "WebSearch", "WebFetch"} <= set(BUILTIN_TOOLS)
     assert options.allowed_tools == [
-        f"mcp__monsterdex__{tool}" for tool in (*POKEDEX_TOOLS, *DIGIMON_TOOLS)
+        f"mcp__monsterdex__{tool}" for tool in (*MONSTERDEX_TOOLS, *DIGIMON_TOOLS)
     ]
-    assert all(tool.startswith("pokemon_") for tool in POKEDEX_TOOLS)
+    assert all(tool.startswith("pokemon_") for tool in MONSTERDEX_TOOLS)
     assert all(tool.startswith("digimon_") for tool in DIGIMON_TOOLS)
     assert options.permission_mode == "dontAsk"  # anything not pre-approved is denied
     assert options.mcp_servers == {"monsterdex": {"type": "http", "url": "http://mcp.test/mcp"}}
@@ -100,7 +100,7 @@ def test_check_mcp_server_explains_how_to_start_it() -> None:
     def refuse(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused")
 
-    with pytest.raises(SystemExit, match="uv run pokedex-mcp"):
+    with pytest.raises(SystemExit, match="uv run monsterdex-mcp"):
         check_mcp_server("http://127.0.0.1:8000/mcp", transport=httpx.MockTransport(refuse))
 
 
@@ -118,7 +118,7 @@ if TYPE_CHECKING:
 
 def test_the_mcp_token_goes_in_an_authorization_header(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("POKEDEX_AGENT_ROLE", "trainer")
-    monkeypatch.setenv("POKEDEX_MCP_TOKEN", "t0ken")
+    monkeypatch.setenv("MONSTERDEX_MCP_TOKEN", "t0ken")
 
     settings = Settings.from_env()
 
@@ -132,6 +132,6 @@ def test_the_mcp_token_goes_in_an_authorization_header(monkeypatch: pytest.Monke
 
 def test_without_a_token_no_header_is_sent(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("POKEDEX_AGENT_ROLE", "trainer")
-    monkeypatch.delenv("POKEDEX_MCP_TOKEN", raising=False)
+    monkeypatch.delenv("MONSTERDEX_MCP_TOKEN", raising=False)
 
     assert "headers" not in mcp_server_config(Settings.from_env())

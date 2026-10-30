@@ -54,11 +54,11 @@ def process(
     port = free_tcp_port_factory()
     env = {
         **os.environ,
-        "POKEDEX_PORT": str(port),
-        "POKEDEX_POKEAPI_BASE_URL": "http://127.0.0.1:9/api/v2",  # never called
-        "POKEDEX_SHUTDOWN_DRAIN_SECONDS": str(drain_seconds),
-        "POKEDEX_SHUTDOWN_TIMEOUT_SECONDS": "5",
-        "POKEDEX_TELEMETRY_ENABLED": "true",
+        "MONSTERDEX_PORT": str(port),
+        "MONSTERDEX_POKEDEX_BASE_URL": "http://127.0.0.1:9/api/v2",  # never called
+        "MONSTERDEX_SHUTDOWN_DRAIN_SECONDS": str(drain_seconds),
+        "MONSTERDEX_SHUTDOWN_TIMEOUT_SECONDS": "5",
+        "MONSTERDEX_TELEMETRY_ENABLED": "true",
         "OTEL_EXPORTER_OTLP_ENDPOINT": collector,
     }
     proc = subprocess.Popen(

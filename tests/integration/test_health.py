@@ -20,9 +20,7 @@ def lifecycle() -> Lifecycle:
 
 @pytest.fixture
 def app(lifecycle: Lifecycle) -> FastAPI:
-    return create_app(
-        Settings(pokedex=PokedexSettings(pokeapi_base_url=BASE_URL)), lifecycle=lifecycle
-    )
+    return create_app(Settings(pokedex=PokedexSettings(base_url=BASE_URL)), lifecycle=lifecycle)
 
 
 @pytest.fixture

@@ -7,7 +7,7 @@ documentation; this file holds the rules to follow when changing code.
 
 A creature-catalog MCP server: FastAPI app serving the MCP Streamable HTTP transport at
 `/mcp`, with a Pokédex catalog (public PokeAPI) and a Digimon catalog (digi-api.com, off
-unless `POKEDEX_DIGIMON_ENABLED=true`). `agent/` is a separate project (its own `pyproject.toml`,
+unless `MONSTERDEX_DIGIMON_ENABLED=true`). `agent/` is a separate project (its own `pyproject.toml`,
 `uv.lock`, README) with a Claude Agent SDK demo agent that talks to this server over MCP.
 Its checks are run from `agent/`: `uv run pytest`, `uv run ruff check .`,
 `uv run ruff format --check .`, `uv run mypy` (strict, tests included and fully annotated).
@@ -16,7 +16,7 @@ Its checks are run from `agent/`: `uv run pytest`, `uv run ruff check .`,
 
 ```bash
 uv sync                                   # install (Python 3.14, via mise)
-uv run pokedex-mcp                        # run on http://127.0.0.1:8000/mcp
+uv run monsterdex-mcp                        # run on http://127.0.0.1:8000/mcp
 uv run pytest                             # unit + integration, no network
 uv run pytest -m live                     # real PokeAPI (opt-in)
 uv run ruff check . && uv run ruff format --check . && uv run mypy   # must all pass
@@ -67,7 +67,7 @@ Inside each catalog (paths below are relative to `catalogs/pokedex/`), hexagonal
   (`monsterdex`) at `/mcp` for every module, registers their tools read-only and raises
   `CatalogConflict` on prefix or name clashes. `main.build_modules` lists the modules.
   Every catalog has a `module.py` implementing it; catalogs never touch `MCPServer`.
-- A new catalog ships **behind a feature flag, off by default** (`POKEDEX_<NAME>_ENABLED`,
+- A new catalog ships **behind a feature flag, off by default** (`MONSTERDEX_<NAME>_ENABLED`,
   checked in `main.build_modules`), so enabling it is a config change, not a deploy.
 - `catalogs/digimon/` mirrors `catalogs/pokedex/` file for file (domain, application,
   `adapters/outbound/{digiapi,cache.py,retry.py,probes.py,telemetry}`, `adapters/inbound/mcp`,
@@ -104,7 +104,9 @@ Inside each catalog (paths below are relative to `catalogs/pokedex/`), hexagonal
   `upstream: UpstreamSettings` (`platform/settings.py`: timeouts, cache, retries, reached
   by catalogs through `Platform.upstream`) and one part per catalog
   (`catalogs/<name>/settings.py`, its own `env_prefix`). Catalogs never import `config` or
-  `main` (`test_architecture.py`). Env var names stay `POKEDEX_*`. OpenTelemetry
+  `main` (`test_architecture.py`). Env vars are `MONSTERDEX_*`
+  (`MONSTERDEX_<CATALOG>_*` for a catalog's own part); `POKEDEX_*` is gone and only
+  triggers a startup warning. OpenTelemetry
   exporters use the standard `OTEL_*` vars instead of new settings.
 
 ## Upstream authentication rules

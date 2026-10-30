@@ -28,9 +28,7 @@ INITIALIZE = {
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(
-        pokedex=PokedexSettings(pokeapi_base_url=BASE_URL), allowed_hosts=["pokedex.example:*"]
-    )
+    return Settings(pokedex=PokedexSettings(base_url=BASE_URL), allowed_hosts=["pokedex.example:*"])
 
 
 @pytest.fixture
@@ -137,10 +135,10 @@ def test_accepts_configured_extra_hosts(http):
 
 def test_run_serves_the_app_with_configured_host_port_and_shutdown(monkeypatch):
     captured: dict[str, Any] = {}
-    monkeypatch.setenv("POKEDEX_HOST", "0.0.0.0")
-    monkeypatch.setenv("POKEDEX_PORT", "9000")
-    monkeypatch.setenv("POKEDEX_SHUTDOWN_DRAIN_SECONDS", "3")
-    monkeypatch.setenv("POKEDEX_SHUTDOWN_TIMEOUT_SECONDS", "15")
+    monkeypatch.setenv("MONSTERDEX_HOST", "0.0.0.0")
+    monkeypatch.setenv("MONSTERDEX_PORT", "9000")
+    monkeypatch.setenv("MONSTERDEX_SHUTDOWN_DRAIN_SECONDS", "3")
+    monkeypatch.setenv("MONSTERDEX_SHUTDOWN_TIMEOUT_SECONDS", "15")
 
     def fake_run(server: GracefulServer) -> None:
         captured.update(

@@ -1,4 +1,4 @@
-"""The Digimon catalog's own settings (`POKEDEX_DIGIMON_*`)."""
+"""The Digimon catalog's own settings (`MONSTERDEX_DIGIMON_*`)."""
 
 from pathlib import Path
 from typing import Self
@@ -11,7 +11,7 @@ class DigimonSettings(BaseSettings):
     """Off by default. A service token is sent only when one is configured: the file (a
     mounted Kubernetes Secret, re-read on rotation) or, for local runs, the value."""
 
-    model_config = SettingsConfigDict(env_prefix="POKEDEX_DIGIMON_", frozen=True)
+    model_config = SettingsConfigDict(env_prefix="MONSTERDEX_DIGIMON_", frozen=True)
 
     enabled: bool = False
     base_url: str = "https://digi-api.com/api/v1"
@@ -21,5 +21,7 @@ class DigimonSettings(BaseSettings):
     @model_validator(mode="after")
     def _one_token_source(self) -> Self:
         if self.token_file is not None and self.token is not None:
-            raise ValueError("set POKEDEX_DIGIMON_TOKEN_FILE or POKEDEX_DIGIMON_TOKEN, not both")
+            raise ValueError(
+                "set MONSTERDEX_DIGIMON_TOKEN_FILE or MONSTERDEX_DIGIMON_TOKEN, not both"
+            )
         return self

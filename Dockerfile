@@ -17,12 +17,12 @@ RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid app 
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
-    POKEDEX_HOST=0.0.0.0 \
-    POKEDEX_PORT=8000
+    MONSTERDEX_HOST=0.0.0.0 \
+    MONSTERDEX_PORT=8000
 USER app
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/livez', timeout=2)"]
 # Exec form: Python is PID 1 and receives SIGTERM directly, which starts the graceful shutdown.
 STOPSIGNAL SIGTERM
-CMD ["pokedex-mcp"]
+CMD ["monsterdex-mcp"]

@@ -28,7 +28,7 @@ control, auditing and measurable evaluation.
   The server enforces the same rule for real when `/mcp` requires client tokens: a token
   without the `pokedex:legendary` scope cannot see legendaries, checked on the species of
   the result (see the main README, "Inbound authentication"). Run a `trainer` agent with
-  such a token (`POKEDEX_MCP_TOKEN`); the local policy then just refuses earlier, with a
+  such a token (`MONSTERDEX_MCP_TOKEN`); the local policy then just refuses earlier, with a
   friendlier reason. The name
   normalization in `policy.py` is a copy of the server's; `tests/test_policy.py` pins the
   cases (`Mr. Mime`, `Nidoran♀`, ...) that must stay in sync.
@@ -56,7 +56,7 @@ Requirements: [uv](https://docs.astral.sh/uv/) and Python 3.14 (`mise install`).
 
 ```bash
 # 1. Start the monsterdex MCP server (from the repository root)
-uv run pokedex-mcp            # or: docker compose up -d
+uv run monsterdex-mcp            # or: docker compose up -d
 
 # 2. Install the agent (from agent/)
 cd agent
@@ -70,8 +70,8 @@ uv sync
 | `ANTHROPIC_API_KEY` | yes, unless you are logged in to Claude Code | — | Claude API credentials. Never put it in code or in committed files. |
 | `POKEDEX_AGENT_ROLE` | for `chat` | — | `trainer` or `professor` |
 | `POKEDEX_AGENT_MODEL` | no | `claude-opus-5` | Claude model |
-| `POKEDEX_MCP_URL` | no | `http://127.0.0.1:8000/mcp` | monsterdex MCP endpoint |
-| `POKEDEX_MCP_TOKEN` | when the server requires client tokens | — | sent as `Authorization: Bearer ...`; give a `trainer` agent a token without the `pokedex:legendary` scope |
+| `MONSTERDEX_MCP_URL` | no | `http://127.0.0.1:8000/mcp` | monsterdex MCP endpoint |
+| `MONSTERDEX_MCP_TOKEN` | when the server requires client tokens | — | sent as `Authorization: Bearer ...`; give a `trainer` agent a token without the `pokedex:legendary` scope |
 
 ```bash
 export ANTHROPIC_API_KEY=...   # e.g. from your password manager, not from a file in the repo
@@ -117,7 +117,7 @@ role. A case can check that:
   from the model's own knowledge.
 
 The `trainer-agumon-*` cases use the Digimon catalog, which the server serves only when
-started with `POKEDEX_DIGIMON_ENABLED=true uv run pokedex-mcp`. Without it those cases
+started with `MONSTERDEX_DIGIMON_ENABLED=true uv run monsterdex-mcp`. Without it those cases
 fail (the tools do not exist), the Pokémon ones are unaffected.
 
 The run writes [`evals/report.md`](evals/report.md) (outcome, tools called, time and

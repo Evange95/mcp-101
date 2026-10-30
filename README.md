@@ -1,4 +1,4 @@
-# Pokédex MCP
+# Monsterdex MCP
 
 An [MCP](https://modelcontextprotocol.io) server that exposes creature catalogs to LLM
 clients, hosted in a FastAPI app (Streamable HTTP at `/mcp`): Pokémon from
@@ -24,7 +24,7 @@ list the catalogs and their prefixes.
 | `pokemon_get_evolution_chain(name_or_id)` | Evolution tree for any Pokémon in the chain, with how each evolution happens (`how`) |
 | `pokemon_get_move(name_or_id)` | Type, damage class, power, accuracy, PP, effect |
 
-**Digimon** (`digimon_`, data from digi-api.com, off unless `POKEDEX_DIGIMON_ENABLED=true`)
+**Digimon** (`digimon_`, data from digi-api.com, off unless `MONSTERDEX_DIGIMON_ENABLED=true`)
 — `catalogs/digimon/adapters/inbound/mcp/tools.py`
 
 | Tool | Description |
@@ -126,7 +126,7 @@ src/pokedex_mcp/
       adapters/
         inbound/mcp/          tools.py (PokedexTools: one method per `pokemon_*` tool, PREFIX,
                               INSTRUCTIONS) and output schemas (schemas.py)
-      settings.py             PokedexSettings: the catalog's own POKEDEX_POKEAPI_* settings
+      settings.py             PokedexSettings: the catalog's own MONSTERDEX_POKEDEX_* settings
       module.py               PokedexModule: the catalog's CatalogModule (builds its adapters,
                               owns its HTTP client, lists its tools)
         outbound/
@@ -144,7 +144,7 @@ src/pokedex_mcp/
       adapters/inbound/mcp/   DigimonTools (`digimon_*`) and output schemas
       adapters/outbound/      digiapi/ (client, DTOs, mappers), cache.py, retry.py, probes.py,
                               telemetry/probes.py (RecordedDigimonProbe, build_probes)
-      settings.py             DigimonSettings: POKEDEX_DIGIMON_* (flag, URL, token)
+      settings.py             DigimonSettings: MONSTERDEX_DIGIMON_* (flag, URL, token)
       module.py               DigimonModule: token provider, HTTP client, readiness checks
   platform/                   infrastructure shared by every catalog; imports no catalog
     lifecycle.py              Lifecycle phases (starting → ready → draining → stopping)
@@ -162,7 +162,7 @@ src/pokedex_mcp/
     telemetry/resilience.py   log/OTel/fan-out CacheProbe and RetryProbe for any catalog
     telemetry/lookups.py      log/OTel/fan-out lookup and payload recorders for any catalog
     inbound/auth.py           client tokens for /mcp: FileClientTokens (MCP SDK TokenVerifier),
-                              current_scopes(), clients file parsing, `pokedex-mcp-token`
+                              current_scopes(), clients file parsing, `monsterdex-token`
     upstream/auth.py          service access tokens: StaticTokenProvider, FileTokenProvider,
                               BearerAuth (httpx), TokenProbe, TokenUnavailable
     resilience/cache.py       TtlLruCache + CacheProbe: TTL + LRU cache for any async loader
@@ -185,7 +185,7 @@ The repository chain is `Cached(Retrying(PokeApi))`: cache hits never pay for re
 
 So one upstream call takes at most about the budget plus one attempt (8 + 7 s), instead
 of attempts × (timeout + backoff) as before (≈ 35 s). That stays under the 20 s
-`POKEDEX_SHUTDOWN_TIMEOUT_SECONDS` in the common case and under typical MCP client
+`MONSTERDEX_SHUTDOWN_TIMEOUT_SECONDS` in the common case and under typical MCP client
 timeouts. `pokemon_get_evolution_chain` makes two upstream calls in a row (species, then
 chain), so its worst case is twice that on a cold cache.
 
@@ -198,7 +198,7 @@ callers that were waiting, and not cached.
 **"Not found" is remembered, briefly.** A model that insists on a name that does not exist
 (`missingno`, a dub name) would otherwise cost one upstream call per attempt. The
 decorators tell the cache that the domain's `NotFound` is a definitive answer
-(`remember_error`), so it is kept for `POKEDEX_CACHE_NOT_FOUND_TTL_SECONDS` (5 minutes,
+(`remember_error`), so it is kept for `MONSTERDEX_CACHE_NOT_FOUND_TTL_SECONDS` (5 minutes,
 much shorter than the 24 h of real data, in case the resource is added upstream) and
 raised again as a cache hit. Every other error is still never cached. `0` disables it.
 
@@ -262,11 +262,11 @@ The Digimon catalog below was added exactly this way; read it as the worked exam
 
 The second catalog, built on [digi-api.com](https://digi-api.com) (free, data from
 Wikimon). It is **off by default**: `build_modules` adds `DigimonModule` only when
-`POKEDEX_DIGIMON_ENABLED=true`, so an existing deployment exposes exactly the same tools
+`MONSTERDEX_DIGIMON_ENABLED=true`, so an existing deployment exposes exactly the same tools
 until someone turns it on. `compose.yaml` turns it on for the local demo.
 
 ```bash
-POKEDEX_DIGIMON_ENABLED=true uv run pokedex-mcp
+MONSTERDEX_DIGIMON_ENABLED=true uv run monsterdex-mcp
 # then, in the MCP Inspector: digimon_get {"name_or_id": "war greymon"}
 ```
 
@@ -304,7 +304,7 @@ POKEDEX_DIGIMON_ENABLED=true uv run pokedex-mcp
   mirror or a gateway that does require one (see Upstream authentication). The
   `digi-api` name is what token probes and metrics report as `upstream.name`.
 - **Same settings for timeout, cache and retries** as the Pokédex
-  (`POKEDEX_HTTP_*`, `POKEDEX_CACHE_*`, `POKEDEX_RETRY_*`). Each
+  (`MONSTERDEX_HTTP_*`, `MONSTERDEX_CACHE_*`, `MONSTERDEX_RETRY_*`). Each
   catalog still has its own cache instance and its own HTTP client.
 
 **Errors the model sees** (as MCP tool errors, `isError: true`):
@@ -502,8 +502,8 @@ spans and logs, never on metrics. Metrics are exported every 60 s
 Records carry structured fields in `extra` with the same names as the span attributes
 (`catalog.name`, `catalog.lookup`, `catalog.query`, `catalog.outcome`,
 `catalog.cache.result`, ...); lifecycle records carry `lifecycle.phase` and
-`lifecycle.reason`. On the console (`uv run pokedex-mcp`)
-third-party libraries log at WARNING and `pokedex_mcp.*` at `POKEDEX_LOG_LEVEL`. With
+`lifecycle.reason`. On the console (`uv run monsterdex-mcp`)
+third-party libraries log at WARNING and `pokedex_mcp.*` at `MONSTERDEX_LOG_LEVEL`. With
 telemetry on, every record that reaches the root logger is also exported over OTLP, with
 those fields as attributes and the `trace_id` / `span_id` of the active span, so in Grafana
 you can jump from a log line to its trace. (Uvicorn's own access/error logs do not
@@ -516,17 +516,17 @@ propagate to the root logger and stay console-only.)
 with Tempo (traces), Prometheus (metrics), Loki (logs) and Grafana at
 http://localhost:3000 (admin/admin). Call a tool, then in Grafana → *Explore*:
 
-- **Tempo**: search for service `pokedex-mcp` to see the trace tree above;
+- **Tempo**: search for service `monsterdex-mcp` to see the trace tree above;
 - **Prometheus**: e.g. `catalog_lookups_total` or `catalog_cache_requests_total`, split by
   `catalog_name` (Prometheus converts dots to underscores and adds `_total` to counters);
-- **Loki**: `{service_name="pokedex-mcp"}`, or `{service_name="pokedex-mcp"} | catalog_name="digimon"`
+- **Loki**: `{service_name="monsterdex-mcp"}`, or `{service_name="monsterdex-mcp"} | catalog_name="digimon"`
   for one catalog.
 
 Running the server outside compose:
 
 ```bash
 docker compose up -d otel-lgtm
-POKEDEX_TELEMETRY_ENABLED=true uv run pokedex-mcp   # exports to http://localhost:4318
+MONSTERDEX_TELEMETRY_ENABLED=true uv run monsterdex-mcp   # exports to http://localhost:4318
 ```
 
 If no collector is reachable the server keeps working; the exporters only log warnings.
@@ -551,7 +551,7 @@ If no collector is reachable the server keeps working; the exporters only log wa
 
 ## Inbound authentication (client tokens on `/mcp`)
 
-When `POKEDEX_AUTH_CLIENTS_FILE` is set, every MCP request needs a bearer token listed in
+When `MONSTERDEX_AUTH_CLIENTS_FILE` is set, every MCP request needs a bearer token listed in
 that file; without it, or with an unknown one, the answer is `401` with
 `WWW-Authenticate: Bearer` (the MCP SDK does that part: `FileClientTokens` is its
 `TokenVerifier`). Unset, `/mcp` stays open as before, for localhost and trusted networks.
@@ -567,7 +567,7 @@ sha256:9ab0c4…  agent-professor  pokedex:legendary
 
 - It holds **hashes**, never tokens: reading the Secret (or a backup of it) gives nobody
   access. Clients keep their own token.
-- Mint a client with `uv run pokedex-mcp-token <client id> [scopes]`: it prints the token
+- Mint a client with `uv run monsterdex-token <client id> [scopes]`: it prints the token
   (hand it to the client; it is stored nowhere) and the line to add to the file.
 - It is checked again at most every 5 s, so adding or revoking a client is a Secret
   update, picked up without a restart (mount it without `subPath`).
@@ -602,7 +602,7 @@ lacks the 'pokedex:legendary' permission: do not retry ...`).
 
 Upstream APIs that need a static service access token use the building blocks in
 `platform/upstream/auth.py`. The Digimon catalog uses them when a token is configured
-(`POKEDEX_DIGIMON_TOKEN_FILE` or `POKEDEX_DIGIMON_TOKEN`; see
+(`MONSTERDEX_DIGIMON_TOKEN_FILE` or `MONSTERDEX_DIGIMON_TOKEN`; see
 `catalogs/digimon/module.py`, `build_token_provider`). PokeAPI is public and uses none of
 them.
 
@@ -731,7 +731,7 @@ starting ──▶ ready ──▶ draining ──▶ stopping
   Today no check is gating, and that is on purpose. The HTTP clients used to be checked
   ("is it still open?"), but they only close at shutdown, when the phase already says
   `stopping`, so the check could never catch anything. The Digimon token file
-  (`digimon.digiapi_token`, only when `POKEDEX_DIGIMON_TOKEN_FILE` is set) is
+  (`digimon.digiapi_token`, only when `MONSTERDEX_DIGIMON_TOKEN_FILE` is set) is
   **non-gating**: the Secret is the same for every replica, so a missing one would take
   all of them out of rotation at once, the Pokédex included. Instead `/readyz` stays 200
   with `"status": "degraded"`, the Digimon tools answer with a clear "no access token"
@@ -755,10 +755,10 @@ What happens on `kubectl delete pod`, a rollout or a node drain:
 1. Kubernetes sends **SIGTERM** and, *at the same time*, starts removing the pod from the
    Service endpoints. That removal takes a few seconds to reach kube-proxy, Ingress
    controllers and load balancers, so new requests can still arrive.
-2. **Drain** (`POKEDEX_SHUTDOWN_DRAIN_SECONDS`, default 5): `GracefulServer` moves to
+2. **Drain** (`MONSTERDEX_SHUTDOWN_DRAIN_SECONDS`, default 5): `GracefulServer` moves to
    `draining`. `/readyz` answers 503 while every request, including new MCP calls, is still
    served normally. Nothing is refused while traffic is being moved away.
-3. **Stop accepting, finish in-flight** (`POKEDEX_SHUTDOWN_TIMEOUT_SECONDS`, default 20):
+3. **Stop accepting, finish in-flight** (`MONSTERDEX_SHUTDOWN_TIMEOUT_SECONDS`, default 20):
    uvicorn closes the listening socket and waits for open requests. After the timeout, it
    cancels what is left. The transport is stateless with JSON responses, so there are no
    long-lived MCP streams to wait for: in-flight requests are just tool calls. Without
@@ -775,7 +775,7 @@ Budget: drain + timeout + flush (a few seconds) must stay below the pod's
 Kubernetes sends SIGKILL.
 
 Other signals: **SIGINT** (Ctrl+C in a terminal) skips the drain. A **second signal**
-during the drain stops immediately. With `POKEDEX_SHUTDOWN_DRAIN_SECONDS=0`, SIGTERM goes
+during the drain stops immediately. With `MONSTERDEX_SHUTDOWN_DRAIN_SECONDS=0`, SIGTERM goes
 straight to step 3.
 
 ### Stateless MCP transport
@@ -809,22 +809,22 @@ then also session affinity (or a shared event store) in Kubernetes.
 - Non-root with fixed ids (`runAsUser`/`runAsGroup`/`fsGroup` 10001, matching the
   Dockerfile), read-only root filesystem (with an `emptyDir` on `/tmp`), all capabilities
   dropped, `RuntimeDefault` seccomp.
-- `POKEDEX_ALLOWED_HOSTS` lists the Service hostnames, because `/mcp` rejects unknown `Host`
+- `MONSTERDEX_ALLOWED_HOSTS` lists the Service hostnames, because `/mcp` rejects unknown `Host`
   headers. Add your Ingress host there too.
 - The image's `CMD` uses exec form, so Python is PID 1 and receives SIGTERM directly.
-- `/mcp` requires client tokens: `POKEDEX_AUTH_CLIENTS_FILE` points at the Secret
-  `pokedex-mcp-clients` (key `clients`, no `subPath`, `optional: true`). Create it with
-  the lines from `uv run pokedex-mcp-token ...`:
-  `kubectl create secret generic pokedex-mcp-clients --from-file=clients=./clients`.
+- `/mcp` requires client tokens: `MONSTERDEX_AUTH_CLIENTS_FILE` points at the Secret
+  `monsterdex-mcp-clients` (key `clients`, no `subPath`, `optional: true`). Create it with
+  the lines from `uv run monsterdex-token ...`:
+  `kubectl create secret generic monsterdex-mcp-clients --from-file=clients=./clients`.
   Until it exists, every MCP request gets 401 and `/readyz` reports it as degraded.
-- The Digimon catalog is wired but off (`POKEDEX_DIGIMON_ENABLED: "false"`). Its token
+- The Digimon catalog is wired but off (`MONSTERDEX_DIGIMON_ENABLED: "false"`). Its token
   comes from the Secret `digimon-api-token` mounted at `/var/run/secrets/digimon` (no
   `subPath`, mode `0440`, `optional: true`). To turn it on, create the Secret
   (`kubectl create secret generic digimon-api-token --from-file=token=./token`) and set
   the flag to `"true"`. If the flag is on and the Secret is missing, `/readyz` reports
   `"status": "degraded"` with `digimon.digiapi_token: failing` (still 200: the Pokédex
   keeps serving, the Digimon tools report the missing token). Against the public digi-api.com,
-  drop `POKEDEX_DIGIMON_TOKEN_FILE` instead.
+  drop `MONSTERDEX_DIGIMON_TOKEN_FILE` instead.
 
 Validate and try it locally:
 
@@ -832,8 +832,8 @@ Validate and try it locally:
 docker run --rm -i ghcr.io/yannh/kubeconform:v0.7.0 -summary -strict - < deploy/k8s/deployment.yaml
 
 # simulate a pod: read-only filesystem, no capabilities, then SIGTERM via docker stop
-docker build -t pokedex-mcp:latest .
-docker run -d --name pokedex --read-only --tmpfs /tmp --cap-drop ALL -p 127.0.0.1:8000:8000 pokedex-mcp:latest
+docker build -t monsterdex-mcp:latest .
+docker run -d --name pokedex --read-only --tmpfs /tmp --cap-drop ALL -p 127.0.0.1:8000:8000 monsterdex-mcp:latest
 curl -i localhost:8000/readyz                      # 200 ready
 docker stop -t 30 pokedex & sleep 1
 curl -i localhost:8000/readyz                      # 503 draining
@@ -847,7 +847,7 @@ docker logs pokedex | grep lifecycle               # ready -> draining -> stoppi
 
 ```bash
 mise install && uv sync
-uv run pokedex-mcp                      # http://127.0.0.1:8000/mcp
+uv run monsterdex-mcp                      # http://127.0.0.1:8000/mcp
 # or
 docker compose up --build               # http://localhost:8000/mcp
 ```
@@ -858,29 +858,48 @@ Connect Claude Code:
 claude mcp add --transport http monsterdex http://127.0.0.1:8000/mcp
 ```
 
-## Configuration (`POKEDEX_*` env vars)
+## Configuration (`MONSTERDEX_*` env vars)
+
+**Renamed from `pokedex-mcp`.** The server became `monsterdex-mcp` when it gained a second
+catalog. Every variable moved from `POKEDEX_*` to `MONSTERDEX_*`; at startup the server
+logs a WARNING listing any `POKEDEX_*` variable still set (it is ignored), so an old
+deployment does not silently run on defaults.
+
+| Before | Now |
+|---|---|
+| `POKEDEX_<NAME>` (server, HTTP, cache, retry, auth) | `MONSTERDEX_<NAME>` |
+| `POKEDEX_POKEAPI_BASE_URL` | `MONSTERDEX_POKEDEX_BASE_URL` |
+| `POKEDEX_DIGIMON_*` | `MONSTERDEX_DIGIMON_*` |
+| `uv run pokedex-mcp`, `pokedex-mcp-token` | `uv run monsterdex-mcp`, `monsterdex-token` |
+| OTel `service.name` `pokedex-mcp` | `monsterdex-mcp` (Tempo, Loki and Prometheus queries change) |
+| image, compose service, Deployment, Service `pokedex-mcp`; Secret `pokedex-mcp-clients` | `monsterdex-mcp`; `monsterdex-mcp-clients` |
+| agent `POKEDEX_MCP_URL`, `POKEDEX_MCP_TOKEN` | `MONSTERDEX_MCP_URL`, `MONSTERDEX_MCP_TOKEN` (`POKEDEX_AGENT_*` unchanged) |
+
+The Python import package is still `pokedex_mcp` (`[tool.uv.build-backend] module-name`),
+and so are the logger names (`pokedex_mcp.*`): renaming them would touch every import
+for no user-visible gain.
 
 | Variable | Default |
 |---|---|
-| `POKEDEX_POKEAPI_BASE_URL` | `https://pokeapi.co/api/v2` |
-| `POKEDEX_HTTP_TIMEOUT_SECONDS` | `5` — read/write timeout of one upstream request |
-| `POKEDEX_HTTP_CONNECT_TIMEOUT_SECONDS` | `2` |
-| `POKEDEX_CACHE_TTL_SECONDS` | `86400` — catalog data is static; the name indexes are reused for a day |
-| `POKEDEX_CACHE_MAX_ENTRIES` | `512` |
-| `POKEDEX_CACHE_NOT_FOUND_TTL_SECONDS` | `300` — how long "not found" is remembered (`0` disables) |
-| `POKEDEX_RETRY_ATTEMPTS` | `3` |
-| `POKEDEX_RETRY_BUDGET_SECONDS` | `8` — no retry starts, and no backoff (or `Retry-After`) is slept, past this point of a call |
-| `POKEDEX_HOST` / `POKEDEX_PORT` | `127.0.0.1` / `8000` |
-| `POKEDEX_ALLOWED_HOSTS` | empty — extra `Host` headers accepted by `/mcp` (comma-separated, `host:*` allowed) |
-| `POKEDEX_LOG_LEVEL` | `INFO` — level of the `pokedex_mcp` loggers (`DEBUG` shows cache hits and found lookups) |
-| `POKEDEX_TELEMETRY_ENABLED` | `false` — export traces, metrics and logs over OTLP/HTTP |
-| `POKEDEX_SHUTDOWN_DRAIN_SECONDS` | `5` — after SIGTERM, keep serving with `/readyz` at 503 for this long (`0` disables) |
-| `POKEDEX_SHUTDOWN_TIMEOUT_SECONDS` | `20` — then wait at most this long (integer seconds) for in-flight requests |
-| `POKEDEX_AUTH_CLIENTS_FILE` | none — clients allowed on `/mcp` (see [Inbound authentication](#inbound-authentication-client-tokens-on-mcp)); unset means `/mcp` is open |
-| `POKEDEX_DIGIMON_ENABLED` | `false` — serve the `digimon_*` tools |
-| `POKEDEX_DIGIMON_BASE_URL` | `https://digi-api.com/api/v1` |
-| `POKEDEX_DIGIMON_TOKEN_FILE` | none — file holding the service token (a mounted Secret, re-read on rotation); adds the non-gating `digimon.digiapi_token` readiness check |
-| `POKEDEX_DIGIMON_TOKEN` | none — the token itself, for local runs only. Setting both token variables is a startup error. With neither, no `Authorization` header is sent |
+| `MONSTERDEX_POKEDEX_BASE_URL` | `https://pokeapi.co/api/v2` |
+| `MONSTERDEX_HTTP_TIMEOUT_SECONDS` | `5` — read/write timeout of one upstream request |
+| `MONSTERDEX_HTTP_CONNECT_TIMEOUT_SECONDS` | `2` |
+| `MONSTERDEX_CACHE_TTL_SECONDS` | `86400` — catalog data is static; the name indexes are reused for a day |
+| `MONSTERDEX_CACHE_MAX_ENTRIES` | `512` |
+| `MONSTERDEX_CACHE_NOT_FOUND_TTL_SECONDS` | `300` — how long "not found" is remembered (`0` disables) |
+| `MONSTERDEX_RETRY_ATTEMPTS` | `3` |
+| `MONSTERDEX_RETRY_BUDGET_SECONDS` | `8` — no retry starts, and no backoff (or `Retry-After`) is slept, past this point of a call |
+| `MONSTERDEX_HOST` / `MONSTERDEX_PORT` | `127.0.0.1` / `8000` |
+| `MONSTERDEX_ALLOWED_HOSTS` | empty — extra `Host` headers accepted by `/mcp` (comma-separated, `host:*` allowed) |
+| `MONSTERDEX_LOG_LEVEL` | `INFO` — level of the `pokedex_mcp` loggers (`DEBUG` shows cache hits and found lookups) |
+| `MONSTERDEX_TELEMETRY_ENABLED` | `false` — export traces, metrics and logs over OTLP/HTTP |
+| `MONSTERDEX_SHUTDOWN_DRAIN_SECONDS` | `5` — after SIGTERM, keep serving with `/readyz` at 503 for this long (`0` disables) |
+| `MONSTERDEX_SHUTDOWN_TIMEOUT_SECONDS` | `20` — then wait at most this long (integer seconds) for in-flight requests |
+| `MONSTERDEX_AUTH_CLIENTS_FILE` | none — clients allowed on `/mcp` (see [Inbound authentication](#inbound-authentication-client-tokens-on-mcp)); unset means `/mcp` is open |
+| `MONSTERDEX_DIGIMON_ENABLED` | `false` — serve the `digimon_*` tools |
+| `MONSTERDEX_DIGIMON_BASE_URL` | `https://digi-api.com/api/v1` |
+| `MONSTERDEX_DIGIMON_TOKEN_FILE` | none — file holding the service token (a mounted Secret, re-read on rotation); adds the non-gating `digimon.digiapi_token` readiness check |
+| `MONSTERDEX_DIGIMON_TOKEN` | none — the token itself, for local runs only. Setting both token variables is a startup error. With neither, no `Authorization` header is sent |
 
 With telemetry on, the exporters follow the standard `OTEL_*` variables:
 
@@ -888,7 +907,7 @@ With telemetry on, the exporters follow the standard `OTEL_*` variables:
 |---|---|
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` (OTLP/HTTP; `/v1/traces`, `/v1/metrics`, `/v1/logs` are appended) |
 | `OTEL_EXPORTER_OTLP_HEADERS` | none — e.g. `authorization=Bearer ...` for a hosted backend |
-| `OTEL_SERVICE_NAME` | `pokedex-mcp` |
+| `OTEL_SERVICE_NAME` | `monsterdex-mcp` |
 | `OTEL_RESOURCE_ATTRIBUTES` | none — e.g. `deployment.environment=dev` |
 | `OTEL_METRIC_EXPORT_INTERVAL` | `60000` ms |
 
@@ -910,17 +929,17 @@ uv sync               # creates .venv with runtime + dev dependencies (pytest, r
 
 | Goal | Command |
 |---|---|
-| Normal run (logging configured, telemetry if enabled) | `uv run pokedex-mcp` |
-| Verbose domain logs (lookups, cache hits) | `POKEDEX_LOG_LEVEL=DEBUG uv run pokedex-mcp` |
+| Normal run (logging configured, telemetry if enabled) | `uv run monsterdex-mcp` |
+| Verbose domain logs (lookups, cache hits) | `MONSTERDEX_LOG_LEVEL=DEBUG uv run monsterdex-mcp` |
 | Auto-reload on code changes | `uv run uvicorn pokedex_mcp.main:create_app --factory --reload` |
-| With traces/metrics/logs in Grafana | `docker compose up -d otel-lgtm` then `POKEDEX_TELEMETRY_ENABLED=true uv run pokedex-mcp` |
-| With the Digimon catalog | `POKEDEX_DIGIMON_ENABLED=true uv run pokedex-mcp` |
-| Digimon with a token, as in Kubernetes | `echo dev-token > /tmp/digimon-token` then `POKEDEX_DIGIMON_ENABLED=true POKEDEX_DIGIMON_TOKEN_FILE=/tmp/digimon-token uv run pokedex-mcp` |
+| With traces/metrics/logs in Grafana | `docker compose up -d otel-lgtm` then `MONSTERDEX_TELEMETRY_ENABLED=true uv run monsterdex-mcp` |
+| With the Digimon catalog | `MONSTERDEX_DIGIMON_ENABLED=true uv run monsterdex-mcp` |
+| Digimon with a token, as in Kubernetes | `echo dev-token > /tmp/digimon-token` then `MONSTERDEX_DIGIMON_ENABLED=true MONSTERDEX_DIGIMON_TOKEN_FILE=/tmp/digimon-token uv run monsterdex-mcp` |
 | Everything in containers (Digimon on) | `docker compose up --build` |
 
-The `--reload` mode calls `create_app()` directly. That means `POKEDEX_LOG_LEVEL` is not
+The `--reload` mode calls `create_app()` directly. That means `MONSTERDEX_LOG_LEVEL` is not
 applied and telemetry is off, so only warnings from `pokedex_mcp` reach the console. Use
-`uv run pokedex-mcp` when you need logs or telemetry.
+`uv run monsterdex-mcp` when you need logs or telemetry.
 
 Check it is up: `curl http://127.0.0.1:8000/readyz` → `{"status":"ready",...}` (see
 [Health checks](#health-checks-and-graceful-shutdown-kubernetes)).
@@ -1057,10 +1076,10 @@ check (`_cache: type[CacheProbe] = ...`, `_retry: ...`), because mypy rejects re
 
 ### Debugging tips
 
-- `POKEDEX_LOG_LEVEL=DEBUG uv run pokedex-mcp` logs every lookup with its normalized key,
+- `MONSTERDEX_LOG_LEVEL=DEBUG uv run monsterdex-mcp` logs every lookup with its normalized key,
   outcome and cache result (see [Logs](#logs)).
-- Point the server at a local fake API with `POKEDEX_POKEAPI_BASE_URL`; lower
-  `POKEDEX_RETRY_ATTEMPTS=1` and `POKEDEX_CACHE_TTL_SECONDS` to make failures and expiry
+- Point the server at a local fake API with `MONSTERDEX_POKEDEX_BASE_URL`; lower
+  `MONSTERDEX_RETRY_ATTEMPTS=1` and `MONSTERDEX_CACHE_TTL_SECONDS` to make failures and expiry
   visible quickly.
 - With the LGTM stack, open a trace in Tempo to see whether time went into the cache, the
   retries (`catalog.retry` events) or the upstream (the `GET` span).
@@ -1070,7 +1089,7 @@ setup and tests. It needs this server running.
 
 ## Security
 
-Without `POKEDEX_AUTH_CLIENTS_FILE`, `/mcp` has no authentication and is meant for
+Without `MONSTERDEX_AUTH_CLIENTS_FILE`, `/mcp` has no authentication and is meant for
 localhost / trusted networks only (`docker compose` keeps it that way). The Kubernetes
 manifest turns client tokens on (see [Inbound authentication](#inbound-authentication-client-tokens-on-mcp)),
 and the legendary restriction is then enforced by the server, on the result. The demo
@@ -1078,7 +1097,7 @@ agent's own policy (`agent/`) stays as an earlier, friendlier refusal, not as th
 security boundary. Static tokens fit a handful of known clients; with many clients or
 user identities, move to OAuth (an identity provider issuing JWTs, verified by a
 `TokenVerifier` that reads the scopes from a claim): the rest of the code is unchanged.
-`docker compose` binds it to `127.0.0.1`, not all interfaces. `POKEDEX_ALLOWED_HOSTS`
+`docker compose` binds it to `127.0.0.1`, not all interfaces. `MONSTERDEX_ALLOWED_HOSTS`
 only extends which `Host` headers `/mcp` accepts — it does not authorize browser
 `Origin` headers, since browser-based MCP clients are out of scope. Input names/ids
 accept letters, digits, spaces and hyphens; accents, apostrophes and dots are
