@@ -25,8 +25,11 @@ control, auditing and measurable evaluation.
 - **What the policy is not.** It is a guard on what *this agent* asks for, not access
   control. It sees only the tool arguments: a form requested by its numeric id (10001+)
   is not recognized, and any client that reaches the MCP endpoint directly bypasses it.
-  If roles must really be enforced, authorization belongs on the server (an authenticated
-  `/mcp` with a role claim, checked against `is_legendary` in the *result*). The name
+  The server enforces the same rule for real when `/mcp` requires client tokens: a token
+  without the `pokedex:legendary` scope cannot see legendaries, checked on the species of
+  the result (see the main README, "Inbound authentication"). Run a `trainer` agent with
+  such a token (`POKEDEX_MCP_TOKEN`); the local policy then just refuses earlier, with a
+  friendlier reason. The name
   normalization in `policy.py` is a copy of the server's; `tests/test_policy.py` pins the
   cases (`Mr. Mime`, `Nidoran♀`, ...) that must stay in sync.
 - **Audit.** Every call is appended to `logs/audit.jsonl` with timestamp, session,
@@ -68,6 +71,7 @@ uv sync
 | `POKEDEX_AGENT_ROLE` | for `chat` | — | `trainer` or `professor` |
 | `POKEDEX_AGENT_MODEL` | no | `claude-opus-5` | Claude model |
 | `POKEDEX_MCP_URL` | no | `http://127.0.0.1:8000/mcp` | monsterdex MCP endpoint |
+| `POKEDEX_MCP_TOKEN` | when the server requires client tokens | — | sent as `Authorization: Bearer ...`; give a `trainer` agent a token without the `pokedex:legendary` scope |
 
 ```bash
 export ANTHROPIC_API_KEY=...   # e.g. from your password manager, not from a file in the repo

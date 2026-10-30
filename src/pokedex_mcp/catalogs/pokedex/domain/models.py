@@ -19,6 +19,9 @@ class Pokemon:
     abilities: tuple[str, ...]
     stats: tuple[PokemonStat, ...]
     sprite_url: str | None
+    # The species it belongs to: "mewtwo" for "mewtwo-mega-x". Rules about legendaries
+    # are rules about species.
+    species: str
 
 
 @dataclass(frozen=True, slots=True)

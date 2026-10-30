@@ -1,6 +1,6 @@
 """Output ports: what the application needs from the outside world."""
 
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from pokedex_mcp.catalogs.pokedex.domain.models import (
     EvolutionChain,
@@ -10,6 +10,21 @@ from pokedex_mcp.catalogs.pokedex.domain.models import (
     PokemonSummary,
     PokemonType,
 )
+
+
+class Caller(Protocol):
+    """Who is asking, as far as the Pokédex rules care. Answered by the inbound adapter."""
+
+    def may_see_legendary(self) -> bool:
+        """Legendary and mythical Pokémon details are reserved to some callers."""
+        ...
+
+
+class EveryCaller:
+    """No restrictions: the default when the endpoint does not authenticate its clients."""
+
+    def may_see_legendary(self) -> bool:
+        return True
 
 
 class PokedexRepository(Protocol):
@@ -33,3 +48,7 @@ class PokedexRepository(Protocol):
     async def get_evolution_chain(self, chain_id: int) -> EvolutionChain: ...
 
     async def get_move(self, key: str) -> Move: ...
+
+
+if TYPE_CHECKING:
+    _caller: type[Caller] = EveryCaller

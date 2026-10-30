@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from opentelemetry import trace
 from opentelemetry.metrics import MeterProvider
 
+from pokedex_mcp.platform.inbound.auth import ClientsProbe
 from pokedex_mcp.platform.upstream.auth import TokenProbe
 
 SCOPE = "pokedex_mcp.platform"
@@ -68,6 +69,48 @@ class FanOutTokenProbe:
             probe.token_unavailable(upstream, reason)
 
 
+class OtelClientsProbe:
+    """`mcp.auth.refusals` (alert on a spike: a client lost its token, or someone probes)
+    and `mcp.auth.unavailable` (the clients file is unusable: everyone is refused)."""
+
+    def __init__(self, meter_provider: MeterProvider) -> None:
+        meter = meter_provider.get_meter(SCOPE)
+        self._refusals = meter.create_counter(
+            "mcp.auth.refusals", unit="{request}", description="MCP requests with an unknown token"
+        )
+        self._unavailable = meter.create_counter(
+            "mcp.auth.unavailable", unit="{failure}", description="Unusable clients file reads"
+        )
+
+    def clients_loaded(self, count: int) -> None:
+        pass  # the log line is enough: it happens once per rotation
+
+    def clients_unavailable(self, reason: str) -> None:
+        self._unavailable.add(1)
+
+    def token_refused(self) -> None:
+        self._refusals.add(1)
+
+
+class FanOutClientsProbe:
+    def __init__(self, *probes: ClientsProbe) -> None:
+        self._probes = probes
+
+    def clients_loaded(self, count: int) -> None:
+        for probe in self._probes:
+            probe.clients_loaded(count)
+
+    def clients_unavailable(self, reason: str) -> None:
+        for probe in self._probes:
+            probe.clients_unavailable(reason)
+
+    def token_refused(self) -> None:
+        for probe in self._probes:
+            probe.token_refused()
+
+
 if TYPE_CHECKING:
     _otel: type[TokenProbe] = OtelTokenProbe
     _fanout: type[TokenProbe] = FanOutTokenProbe
+    _otel_clients: type[ClientsProbe] = OtelClientsProbe
+    _fanout_clients: type[ClientsProbe] = FanOutClientsProbe

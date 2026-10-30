@@ -161,6 +161,8 @@ src/pokedex_mcp/
     telemetry/names.py        every `catalog.*` attribute, event and metric name
     telemetry/resilience.py   log/OTel/fan-out CacheProbe and RetryProbe for any catalog
     telemetry/lookups.py      log/OTel/fan-out lookup and payload recorders for any catalog
+    inbound/auth.py           client tokens for /mcp: FileClientTokens (MCP SDK TokenVerifier),
+                              current_scopes(), clients file parsing, `pokedex-mcp-token`
     upstream/auth.py          service access tokens: StaticTokenProvider, FileTokenProvider,
                               BearerAuth (httpx), TokenProbe, TokenUnavailable
     resilience/cache.py       TtlLruCache + CacheProbe: TTL + LRU cache for any async loader
@@ -421,9 +423,10 @@ name, the same for every catalog:
 | `catalog.query` | raw user input, truncated to 100 characters |
 | `catalog.key` | normalized key sent upstream (`Mr. Mime` → `mr-mime`, `War Greymon` → `war greymon`) |
 | `catalog.resolved_key` | when the key did not exist and the lookup was resolved: the key actually used (`deoxys-normal`, `war greymon`) |
-| `catalog.outcome` | `found`, `not_found`, `rejected`, `unavailable` or `error` |
+| `catalog.outcome` | `found`, `not_found`, `rejected`, `denied`, `unavailable` or `error` |
 | `catalog.resource` | on `not_found`: the missing resource (`Pokémon`, `Evolution chain`, `Digimon`, ...) |
 | `catalog.rejection` | on `rejected`: why the query was invalid |
+| `catalog.denial` | on `denied`: why the caller may not see the result (`mewtwo is a legendary Pokémon`) |
 | `catalog.retryable` | on `unavailable`: whether retrying could help |
 | `catalog.cache.result` | `hit`, `miss` or `expired`, set by the cache probe |
 | `error.type` | on `error`: exception class of an unexpected failure |
@@ -453,6 +456,8 @@ stable names (`http.response.status_code`, ...).
 | `upstream.token.loads` | counter | `upstream.name` — first read and every rotation picked up |
 | `upstream.token.rejections` | counter | `upstream.name`, `upstream.token.retried` — **alert on this**: the upstream refuses our token |
 | `upstream.token.unavailable` | counter | `upstream.name` — the token file is missing, unreadable or empty |
+| `mcp.auth.refusals` | counter | — MCP requests with an unknown client token |
+| `mcp.auth.unavailable` | counter | — the clients file could not be used (everyone refused) |
 
 **One name per signal, `catalog.name` to tell catalogs apart.** A dashboard panel shows
 every catalog with one query, and a new catalog appears in it with no dashboard change.
@@ -492,6 +497,7 @@ spans and logs, never on metrics. Metrics are exported every 60 s
 | `pokedex_mcp.pokedex.pokeapi`, `pokedex_mcp.digimon.digiapi` | WARNING | unexpected upstream payload |
 | `pokedex_mcp.upstream.auth` | INFO | access token loaded or rotation picked up |
 | `pokedex_mcp.upstream.auth` | ERROR | token rejected by the upstream (401), or no token available |
+| `pokedex_mcp.inbound.auth` | INFO / WARNING / ERROR | clients loaded / unknown client token / clients file unusable |
 
 Records carry structured fields in `extra` with the same names as the span attributes
 (`catalog.name`, `catalog.lookup`, `catalog.query`, `catalog.outcome`,
@@ -542,6 +548,55 @@ If no collector is reachable the server keeps working; the exporters only log wa
    (Pokédex), `tests/unit/digimon/` or `tests/unit/platform/test_telemetry_lookups.py`.
    If it is a metric, extend `tests/unit/test_telemetry_names.py`.
 5. Document it in the tables above.
+
+## Inbound authentication (client tokens on `/mcp`)
+
+When `POKEDEX_AUTH_CLIENTS_FILE` is set, every MCP request needs a bearer token listed in
+that file; without it, or with an unknown one, the answer is `401` with
+`WWW-Authenticate: Bearer` (the MCP SDK does that part: `FileClientTokens` is its
+`TokenVerifier`). Unset, `/mcp` stays open as before, for localhost and trusted networks.
+`/livez`, `/readyz` and `/health` never need a token: Kubernetes calls them.
+
+**The clients file** (`platform/inbound/auth.py`), one line per client:
+
+```
+# sha256:<hex digest of the token>  <client id>  <scopes, comma-separated, or ->
+sha256:eb3190…  agent-trainer    -
+sha256:9ab0c4…  agent-professor  pokedex:legendary
+```
+
+- It holds **hashes**, never tokens: reading the Secret (or a backup of it) gives nobody
+  access. Clients keep their own token.
+- Mint a client with `uv run pokedex-mcp-token <client id> [scopes]`: it prints the token
+  (hand it to the client; it is stored nowhere) and the line to add to the file.
+- It is checked again at most every 5 s, so adding or revoking a client is a Secret
+  update, picked up without a restart (mount it without `subPath`).
+- **Fail closed.** A missing, unreadable or malformed file refuses every request: a typo
+  must never bring back a revoked client. `/readyz` lists `auth.clients_file` as
+  degraded (not failing: the Secret is the same on every replica), the log says why at
+  ERROR, and `mcp.auth.unavailable` counts it.
+
+**Scopes and what they unlock.** Authentication says who the client is; scopes say what it
+may see. Today there is one: `pokedex:legendary`. Without it, `pokemon_get`,
+`pokemon_get_species` and `pokemon_get_evolution_chain` refuse legendary and mythical
+Pokémon with a tool error (`... is restricted: mewtwo is a legendary Pokémon. This client
+lacks the 'pokedex:legendary' permission: do not retry ...`).
+
+- **The rule is in the domain, checked on the result.** `PokedexService` asks its `Caller`
+  port (`may_see_legendary()`) and checks the *species* of what it found, so
+  `mewtwo-mega-x`, `Mega Mewtwo` resolved to a form, and the form's numeric id `10043` are
+  all Mewtwo. The agent's client-side policy could only look at the name it was asked
+  for. A restricted caller costs one extra (cached) species lookup per Pokémon.
+- The inbound MCP adapter answers the port (`ScopeCaller`, from the request's token
+  scopes). With authentication off, nothing is restricted.
+- A denial is its own lookup outcome, `denied` (`catalog.denial` on the span), never a
+  span error: the service did its job.
+
+| Signal | Meaning |
+|---|---|
+| `mcp.auth.refusals` (counter), WARNING `pokedex_mcp.inbound.auth` | a request with an unknown token. A spike: a client lost its token, or someone is guessing |
+| `mcp.auth.unavailable` (counter), ERROR | the clients file is unusable: everybody is refused |
+| INFO `N MCP clients loaded` | first read, or a rotation picked up |
 
 ## Upstream authentication (service access tokens)
 
@@ -757,6 +812,11 @@ then also session affinity (or a shared event store) in Kubernetes.
 - `POKEDEX_ALLOWED_HOSTS` lists the Service hostnames, because `/mcp` rejects unknown `Host`
   headers. Add your Ingress host there too.
 - The image's `CMD` uses exec form, so Python is PID 1 and receives SIGTERM directly.
+- `/mcp` requires client tokens: `POKEDEX_AUTH_CLIENTS_FILE` points at the Secret
+  `pokedex-mcp-clients` (key `clients`, no `subPath`, `optional: true`). Create it with
+  the lines from `uv run pokedex-mcp-token ...`:
+  `kubectl create secret generic pokedex-mcp-clients --from-file=clients=./clients`.
+  Until it exists, every MCP request gets 401 and `/readyz` reports it as degraded.
 - The Digimon catalog is wired but off (`POKEDEX_DIGIMON_ENABLED: "false"`). Its token
   comes from the Secret `digimon-api-token` mounted at `/var/run/secrets/digimon` (no
   `subPath`, mode `0440`, `optional: true`). To turn it on, create the Secret
@@ -816,6 +876,7 @@ claude mcp add --transport http monsterdex http://127.0.0.1:8000/mcp
 | `POKEDEX_TELEMETRY_ENABLED` | `false` — export traces, metrics and logs over OTLP/HTTP |
 | `POKEDEX_SHUTDOWN_DRAIN_SECONDS` | `5` — after SIGTERM, keep serving with `/readyz` at 503 for this long (`0` disables) |
 | `POKEDEX_SHUTDOWN_TIMEOUT_SECONDS` | `20` — then wait at most this long (integer seconds) for in-flight requests |
+| `POKEDEX_AUTH_CLIENTS_FILE` | none — clients allowed on `/mcp` (see [Inbound authentication](#inbound-authentication-client-tokens-on-mcp)); unset means `/mcp` is open |
 | `POKEDEX_DIGIMON_ENABLED` | `false` — serve the `digimon_*` tools |
 | `POKEDEX_DIGIMON_BASE_URL` | `https://digi-api.com/api/v1` |
 | `POKEDEX_DIGIMON_TOKEN_FILE` | none — file holding the service token (a mounted Secret, re-read on rotation); adds the non-gating `digimon.digiapi_token` readiness check |
@@ -907,6 +968,7 @@ uv run pytest -m live                           # contract tests against the rea
 | `tests/unit/adapters` | cache and retry decorators; log and OTel probe adapters | none (fake clock, in-memory exporters) |
 | `tests/integration/pokeapi` | PokeAPI client and DTO mapping | HTTP mocked with `respx` |
 | `tests/integration/test_app.py`, `test_mcp_server.py` | full FastAPI + MCP app, tools end to end | HTTP mocked with `respx` |
+| `tests/unit/platform/test_inbound_auth.py`, `tests/integration/test_inbound_auth.py` | clients file parsing (no token echoed), verification, rotation, fail-closed; end to end: 401 without a known token, health stays open, a trainer token cannot see Mewtwo even by form id 10043, a professor can | temp files, in-process app, `respx` |
 | `tests/integration/test_tools_documented.py` | the README tool table lists exactly the exposed tools | in-process MCP client |
 | `tests/integration/test_telemetry.py` | one tool call → one trace (HTTP → MCP → lookup → PokeAPI), logs correlated | in-memory exporters |
 | `tests/unit/platform` | lifecycle phases; drain logic of `GracefulServer`; `TtlLruCache` and `RetryPolicy` with plain values (no Pokédex types); cache and retry probes (`catalog.*` metrics, logs, fan-out); token providers, `BearerAuth` 401 handling, no token leak in spans or logs; `Platform` HTTP clients and token probes | none (fake clock, temp files, `respx`) |
@@ -1008,12 +1070,14 @@ setup and tests. It needs this server running.
 
 ## Security
 
-`/mcp` has no authentication and is meant for localhost / trusted networks only. In
-Kubernetes it is reachable by anything in the cluster that can reach the Service: put a
-NetworkPolicy in front of it, or an authenticating gateway. The demo agent's role policy
-(`agent/`) only restrains that agent; it is not an authorization layer (see its README).
-Inbound authentication (OAuth / bearer tokens, as the MCP specification describes for
-servers acting as resource servers) is the next step if the server is shared.
+Without `POKEDEX_AUTH_CLIENTS_FILE`, `/mcp` has no authentication and is meant for
+localhost / trusted networks only (`docker compose` keeps it that way). The Kubernetes
+manifest turns client tokens on (see [Inbound authentication](#inbound-authentication-client-tokens-on-mcp)),
+and the legendary restriction is then enforced by the server, on the result. The demo
+agent's own policy (`agent/`) stays as an earlier, friendlier refusal, not as the
+security boundary. Static tokens fit a handful of known clients; with many clients or
+user identities, move to OAuth (an identity provider issuing JWTs, verified by a
+`TokenVerifier` that reads the scopes from a claim): the rest of the code is unchanged.
 `docker compose` binds it to `127.0.0.1`, not all interfaces. `POKEDEX_ALLOWED_HOSTS`
 only extends which `Host` headers `/mcp` accepts — it does not authorize browser
 `Origin` headers, since browser-based MCP clients are out of scope. Input names/ids

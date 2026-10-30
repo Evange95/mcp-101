@@ -1,7 +1,12 @@
 import pytest
 
 from pokedex_mcp.catalogs.pokedex.application.use_cases import MAX_PAGE_SIZE, PokedexService
-from pokedex_mcp.catalogs.pokedex.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
+from pokedex_mcp.catalogs.pokedex.domain.errors import (
+    AccessDenied,
+    InvalidQuery,
+    NotFound,
+    PokedexUnavailable,
+)
 from pokedex_mcp.catalogs.pokedex.domain.models import EvolutionStage, PokemonSummary
 from tests.builders import (
     make_evolution_chain,
@@ -289,3 +294,64 @@ async def test_probe_announces_a_resolved_species_name(observed, probe):
         "pokemon: found",
         "pokemon: ended",
     ]
+
+
+class Trainer:
+    """A caller without access to legendary details."""
+
+    def may_see_legendary(self) -> bool:
+        return False
+
+
+@pytest.fixture
+def restricted(probe: RecordingPokedexProbe) -> tuple[PokedexService, FakePokedexRepository]:
+    repository = FakePokedexRepository(
+        pokemon=[
+            make_pokemon("pikachu", 25),
+            make_pokemon("mewtwo", 150),
+            make_pokemon("mewtwo-mega-x", 10043, species="mewtwo"),
+        ],
+        species=[
+            make_species("pikachu", 25),
+            make_species("mewtwo", 150, evolution_chain_id=None, is_legendary=True),
+        ],
+    )
+    return PokedexService(repository, probe=probe, caller=Trainer()), repository
+
+
+@pytest.mark.parametrize("name_or_id", ["mewtwo", "mewtwo-mega-x", 10043])
+async def test_a_restricted_caller_cannot_see_a_legendary_or_its_forms(restricted, name_or_id):
+    service, _ = restricted
+
+    with pytest.raises(AccessDenied, match="mewtwo is a legendary Pokémon"):
+        await service.get_pokemon(name_or_id)
+
+
+async def test_species_and_evolution_chains_of_legendaries_are_restricted_too(restricted):
+    service, _ = restricted
+
+    with pytest.raises(AccessDenied):
+        await service.get_species("mewtwo")
+    with pytest.raises(AccessDenied):
+        await service.get_evolution_chain("mewtwo")
+
+
+async def test_a_restricted_caller_still_sees_everything_else(restricted):
+    service, _ = restricted
+
+    assert (await service.get_pokemon("pikachu")).name == "pikachu"
+
+
+async def test_an_unrestricted_caller_reads_the_species_only_when_it_needs_it(repository):
+    await PokedexService(repository).get_pokemon("pikachu")
+
+    assert repository.calls == ["get_pokemon:pikachu"]  # no extra species lookup
+
+
+async def test_a_denial_is_its_own_outcome(restricted, probe):
+    service, _ = restricted
+
+    with pytest.raises(AccessDenied):
+        await service.get_pokemon("mewtwo")
+
+    assert probe.events[-2:] == ["pokemon: denied", "pokemon: ended"]

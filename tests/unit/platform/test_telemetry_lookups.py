@@ -3,6 +3,7 @@
 import logging
 
 import pytest
+from opentelemetry.trace import StatusCode
 
 from pokedex_mcp.platform.telemetry.lookups import (
     FanOutLookupRecorder,
@@ -69,3 +70,16 @@ def test_payload_fan_out_counts_and_logs(otel, caplog):
 
     assert caplog.records[0].getMessage() == "unexpected digi-api payload for digimon/x: html"
     assert otel.counts("catalog.upstream.unexpected_payloads") == {("digimon", "Digimon"): 1}
+
+
+def test_a_denial_is_an_outcome_not_an_error(otel):
+    recorder = OtelLookupRecorder("pokedex", otel.tracer_provider, otel.meter_provider)
+
+    with recorder.lookup("pokemon", "mewtwo") as events:
+        events.denied("mewtwo is a legendary Pokémon")
+
+    span = otel.finished_spans()["pokedex.lookup pokemon"]
+    assert span.status.status_code is StatusCode.UNSET
+    assert span.attributes is not None
+    assert span.attributes["catalog.denial"] == "mewtwo is a legendary Pokémon"
+    assert otel.counts("catalog.lookups") == {("pokedex", "pokemon", "denied"): 1}

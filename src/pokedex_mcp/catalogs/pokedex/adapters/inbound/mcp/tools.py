@@ -7,6 +7,7 @@ from typing import Annotated
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import Field
 
+from pokedex_mcp.catalogs.pokedex.adapters.inbound.mcp.access import LEGENDARY_SCOPE
 from pokedex_mcp.catalogs.pokedex.adapters.inbound.mcp.schemas import (
     EvolutionChainOut,
     MoveOut,
@@ -16,7 +17,12 @@ from pokedex_mcp.catalogs.pokedex.adapters.inbound.mcp.schemas import (
     TypeOut,
 )
 from pokedex_mcp.catalogs.pokedex.application.use_cases import MAX_PAGE_SIZE, PokedexService
-from pokedex_mcp.catalogs.pokedex.domain.errors import NotFound, PokedexError, PokedexUnavailable
+from pokedex_mcp.catalogs.pokedex.domain.errors import (
+    AccessDenied,
+    NotFound,
+    PokedexError,
+    PokedexUnavailable,
+)
 
 PREFIX = "pokemon_"
 INSTRUCTIONS = (
@@ -38,6 +44,11 @@ def tool_error_message(error: PokedexError) -> str:
     if isinstance(error, NotFound):
         end = "" if error.suggestions else "."  # a suggestion already ends with "?"
         return f"{error}{end} Search names with pokemon_list(name=...)."
+    if isinstance(error, AccessDenied):
+        return (
+            f"{error}. This client lacks the '{LEGENDARY_SCOPE}' permission: do not retry, "
+            "tell the user this data is restricted."
+        )
     if isinstance(error, PokedexUnavailable):
         if error.retryable:
             return f"{error}. Try again in a few seconds."

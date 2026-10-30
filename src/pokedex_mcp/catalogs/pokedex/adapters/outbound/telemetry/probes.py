@@ -13,7 +13,12 @@ from typing import TYPE_CHECKING
 
 from pokedex_mcp.catalogs.pokedex.adapters.outbound.probes import PokeApiProbe
 from pokedex_mcp.catalogs.pokedex.application.probes import Lookup, LookupProbe, PokedexProbe
-from pokedex_mcp.catalogs.pokedex.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
+from pokedex_mcp.catalogs.pokedex.domain.errors import (
+    AccessDenied,
+    InvalidQuery,
+    NotFound,
+    PokedexUnavailable,
+)
 from pokedex_mcp.platform.catalog import Platform
 from pokedex_mcp.platform.resilience.cache import CacheProbe
 from pokedex_mcp.platform.resilience.retry import RetryProbe
@@ -44,6 +49,9 @@ class _RecordedLookup:
 
     def source_unavailable(self, error: PokedexUnavailable) -> None:
         self._events.unavailable(error, reason=error.reason, retryable=error.retryable)
+
+    def access_denied(self, error: AccessDenied) -> None:
+        self._events.denied(error.reason)
 
 
 class RecordedPokedexProbe:

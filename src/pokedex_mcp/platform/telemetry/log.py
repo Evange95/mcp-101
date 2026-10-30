@@ -3,6 +3,7 @@
 import logging
 from typing import TYPE_CHECKING
 
+from pokedex_mcp.platform.inbound.auth import ClientsProbe
 from pokedex_mcp.platform.lifecycle import LifecycleProbe, Phase
 from pokedex_mcp.platform.upstream.auth import TokenProbe
 
@@ -52,6 +53,22 @@ class LoggingTokenProbe:
         )
 
 
+class LoggingClientsProbe:
+    """Inbound authentication. Never logs a token, nor which client a refused token was for."""
+
+    def __init__(self, logger: logging.Logger | None = None) -> None:
+        self._logger = logger or logging.getLogger(f"{LOGGER_NAME}.inbound.auth")
+
+    def clients_loaded(self, count: int) -> None:
+        self._logger.info("%d MCP clients loaded", count, extra={"mcp.auth.clients": count})
+
+    def clients_unavailable(self, reason: str) -> None:
+        self._logger.error("MCP clients file unusable, refusing every request: %s", reason)
+
+    def token_refused(self) -> None:
+        self._logger.warning("MCP request refused: unknown token")
+
+
 def _upstream(upstream: str) -> dict[str, str]:
     return {"upstream.name": upstream}
 
@@ -59,3 +76,4 @@ def _upstream(upstream: str) -> dict[str, str]:
 if TYPE_CHECKING:
     _lifecycle: type[LifecycleProbe] = LoggingLifecycleProbe
     _token: type[TokenProbe] = LoggingTokenProbe
+    _clients: type[ClientsProbe] = LoggingClientsProbe

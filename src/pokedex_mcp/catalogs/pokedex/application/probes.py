@@ -9,7 +9,12 @@ from collections.abc import Generator
 from contextlib import AbstractContextManager, contextmanager
 from typing import TYPE_CHECKING, Literal, Protocol
 
-from pokedex_mcp.catalogs.pokedex.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
+from pokedex_mcp.catalogs.pokedex.domain.errors import (
+    AccessDenied,
+    InvalidQuery,
+    NotFound,
+    PokedexUnavailable,
+)
 
 type Lookup = Literal["pokemon", "species", "pokemon_list", "type", "evolution_chain", "move"]
 
@@ -31,6 +36,10 @@ class LookupProbe(Protocol):
     def query_rejected(self, error: InvalidQuery) -> None: ...
 
     def source_unavailable(self, error: PokedexUnavailable) -> None: ...
+
+    def access_denied(self, error: AccessDenied) -> None:
+        """The caller may not see the result: an expected answer, not a fault."""
+        ...
 
 
 class PokedexProbe(Protocol):
@@ -56,6 +65,9 @@ class _NullLookupProbe:
         pass
 
     def source_unavailable(self, error: PokedexUnavailable) -> None:
+        pass
+
+    def access_denied(self, error: AccessDenied) -> None:
         pass
 
 

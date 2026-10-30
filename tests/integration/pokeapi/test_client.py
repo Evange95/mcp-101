@@ -53,6 +53,7 @@ async def test_get_pokemon_maps_the_payload_to_the_domain(repository, pokeapi):
             PokemonStat("speed", 90),
         ),
         sprite_url="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/25.png",
+        species="pikachu",
     )
 
 

@@ -12,6 +12,7 @@ from pokedex_agent.config import (
     Settings,
     build_options,
     check_mcp_server,
+    mcp_server_config,
 )
 from pokedex_agent.hooks import ToolGuard
 from pokedex_agent.policy import Decision
@@ -113,3 +114,24 @@ if TYPE_CHECKING:
     from pokedex_agent.hooks import PolicyEvaluator
 
     _: type[PolicyEvaluator] = AllowAll
+
+
+def test_the_mcp_token_goes_in_an_authorization_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("POKEDEX_AGENT_ROLE", "trainer")
+    monkeypatch.setenv("POKEDEX_MCP_TOKEN", "t0ken")
+
+    settings = Settings.from_env()
+
+    assert mcp_server_config(settings) == {
+        "type": "http",
+        "url": "http://127.0.0.1:8000/mcp",
+        "headers": {"Authorization": "Bearer t0ken"},
+    }
+    assert "t0ken" not in repr(settings)
+
+
+def test_without_a_token_no_header_is_sent(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("POKEDEX_AGENT_ROLE", "trainer")
+    monkeypatch.delenv("POKEDEX_MCP_TOKEN", raising=False)
+
+    assert "headers" not in mcp_server_config(Settings.from_env())

@@ -1,10 +1,11 @@
 """Agent configuration: environment settings and the Claude Agent SDK options."""
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 from claude_agent_sdk import ClaudeAgentOptions
+from claude_agent_sdk.types import McpHttpServerConfig
 
 from pokedex_agent.hooks import ToolGuard
 from pokedex_agent.policy import MCP_TOOL_PREFIX
@@ -64,6 +65,9 @@ class Settings:
     role: str
     model: str = "claude-opus-5"
     mcp_url: str = "http://127.0.0.1:8000/mcp"
+    # The server's client token, when /mcp requires one. Give a trainer agent a token
+    # without the pokedex:legendary scope: the server then enforces the role, too.
+    mcp_token: str | None = field(default=None, repr=False)
 
     @classmethod
     def from_env(cls, default_role: str | None = None) -> Settings:
@@ -74,14 +78,22 @@ class Settings:
             role=role,
             model=os.environ.get("POKEDEX_AGENT_MODEL", cls.model),
             mcp_url=os.environ.get("POKEDEX_MCP_URL", cls.mcp_url),
+            mcp_token=os.environ.get("POKEDEX_MCP_TOKEN") or None,
         )
+
+
+def mcp_server_config(settings: Settings) -> McpHttpServerConfig:
+    config: McpHttpServerConfig = {"type": "http", "url": settings.mcp_url}
+    if settings.mcp_token:
+        config["headers"] = {"Authorization": f"Bearer {settings.mcp_token}"}
+    return config
 
 
 def build_options(settings: Settings, guard: ToolGuard) -> ClaudeAgentOptions:
     return ClaudeAgentOptions(
         model=settings.model,
         system_prompt=SYSTEM_PROMPT.format(role=settings.role),
-        mcp_servers={MCP_SERVER_NAME: {"type": "http", "url": settings.mcp_url}},
+        mcp_servers={MCP_SERVER_NAME: mcp_server_config(settings)},
         strict_mcp_config=True,
         tools=[],
         allowed_tools=[f"{MCP_TOOL_PREFIX}{tool}" for tool in (*POKEDEX_TOOLS, *DIGIMON_TOOLS)],

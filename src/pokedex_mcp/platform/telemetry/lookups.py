@@ -37,6 +37,8 @@ class LookupEvents(Protocol):
 
     def rejected(self, reason: str) -> None: ...
 
+    def denied(self, reason: str) -> None: ...
+
     def unavailable(self, error: Exception, *, reason: str, retryable: bool) -> None: ...
 
 
@@ -69,6 +71,9 @@ class _LoggedLookup:
 
     def rejected(self, reason: str) -> None:
         self._log(logging.INFO, "%s query %r rejected: %s", reason, outcome="rejected")
+
+    def denied(self, reason: str) -> None:
+        self._log(logging.INFO, "%s %r denied: %s", reason, outcome="denied")
 
     def unavailable(self, error: Exception, *, reason: str, retryable: bool) -> None:
         self._log(
@@ -126,6 +131,10 @@ class _TracedLookup:
     def rejected(self, reason: str) -> None:
         self._end("rejected")
         self._span.set_attribute(names.REJECTION, reason)
+
+    def denied(self, reason: str) -> None:
+        self._end("denied")  # the caller's permissions, not a fault: no error status
+        self._span.set_attribute(names.DENIAL, reason)
 
     def unavailable(self, error: Exception, *, reason: str, retryable: bool) -> None:
         self._end("unavailable")
@@ -215,6 +224,10 @@ class _FannedOutLookup:
     def rejected(self, reason: str) -> None:
         for events in self._events:
             events.rejected(reason)
+
+    def denied(self, reason: str) -> None:
+        for events in self._events:
+            events.denied(reason)
 
     def unavailable(self, error: Exception, *, reason: str, retryable: bool) -> None:
         for events in self._events:

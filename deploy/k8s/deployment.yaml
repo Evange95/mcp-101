@@ -44,6 +44,10 @@ spec:
               value: "20"
             - name: POKEDEX_TELEMETRY_ENABLED
               value: "false"
+            # Who may call /mcp: token hashes, client ids, scopes (see the README, "Inbound
+            # authentication"). Without the Secret every request gets 401 (fail closed).
+            - name: POKEDEX_AUTH_CLIENTS_FILE
+              value: /var/run/secrets/mcp-clients/clients
             # Digimon catalog. Once enabled, /readyz also requires the token file to exist.
             - name: POKEDEX_DIGIMON_ENABLED
               value: "false"
@@ -79,12 +83,20 @@ spec:
           volumeMounts:
             - name: tmp  # the root filesystem is read-only; Python and httpx may need a temp dir
               mountPath: /tmp
+            - name: mcp-clients  # no subPath: rotation must reach the file
+              mountPath: /var/run/secrets/mcp-clients
+              readOnly: true
             - name: digimon-token  # no subPath: Kubernetes would never update the file
               mountPath: /var/run/secrets/digimon
               readOnly: true
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: mcp-clients
+          secret:
+            secretName: pokedex-mcp-clients  # key "clients"
+            defaultMode: 0440
+            optional: true  # the pod starts; /readyz reports auth.clients_file as degraded
         - name: digimon-token
           secret:
             secretName: digimon-api-token  # key "token"

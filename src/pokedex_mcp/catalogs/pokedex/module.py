@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+from pokedex_mcp.catalogs.pokedex.adapters.inbound.mcp.access import ScopeCaller
 from pokedex_mcp.catalogs.pokedex.adapters.inbound.mcp.tools import (
     INSTRUCTIONS,
     PREFIX,
@@ -50,7 +51,7 @@ class PokedexModule:
         probes = build_probes(platform)
         self._http = platform.http_client(base_url=settings.pokeapi_base_url)
         repository = build_repository(self._http, platform.upstream, probes)
-        self._service = PokedexService(repository, probe=probes.pokedex)
+        self._service = PokedexService(repository, probe=probes.pokedex, caller=ScopeCaller())
 
     def tools(self) -> Sequence[Tool]:
         return PokedexTools(self._service).all()

@@ -16,7 +16,8 @@ from pokedex_mcp.platform.catalog import (
     build_mcp_server,
     readiness_checks,
 )
-from pokedex_mcp.platform.health import build_health_router
+from pokedex_mcp.platform.health import ReadinessCheck, build_health_router
+from pokedex_mcp.platform.inbound.auth import FileClientTokens
 from pokedex_mcp.platform.lifecycle import Lifecycle
 from pokedex_mcp.platform.server import GracefulServer
 from pokedex_mcp.platform.telemetry.log import LoggingLifecycleProbe, configure_logging
@@ -43,9 +44,16 @@ def create_app(
     is shared with the server that drives the graceful shutdown (see `run`)."""
     settings = settings or Settings()
     lifecycle = lifecycle or Lifecycle(LoggingLifecycleProbe())
-    modules = build_modules(settings, Platform(telemetry, settings.upstream))
+    platform = Platform(telemetry, settings.upstream)
+    modules = build_modules(settings, platform)
+    checks = readiness_checks(modules)
+    clients = None
+    if settings.auth_clients_file is not None:
+        clients = FileClientTokens(settings.auth_clients_file, probe=platform.clients_probe())
+        # Not gating: the Secret is the same on every replica (see platform/health.py).
+        checks["auth.clients_file"] = ReadinessCheck(clients.available, gating=False)
     # A fresh MCPServer per app: its session manager can only be run once.
-    mcp = build_mcp_server(modules)
+    mcp = build_mcp_server(modules, token_verifier=clients)
     mcp_app = mcp.streamable_http_app(
         # Every tool is read-only and keeps no per-client state, so no session is needed:
         # any replica can answer any request, and a rolling update or a drain loses
@@ -71,7 +79,7 @@ def create_app(
                 lifecycle.stop(reason="lifespan shutdown")
 
     app = FastAPI(title="Monsterdex MCP", version="0.1.0", lifespan=lifespan)
-    app.include_router(build_health_router(lifecycle, checks=readiness_checks(modules)))
+    app.include_router(build_health_router(lifecycle, checks=checks))
     app.mount("/", mcp_app)  # serves POST /mcp; must stay the last route
     if telemetry is not None:
         telemetry.instrument_app(app)

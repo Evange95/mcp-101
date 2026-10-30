@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING, Protocol
 import pytest
 
 from pokedex_mcp.catalogs.pokedex.application.probes import Lookup, LookupProbe
-from pokedex_mcp.catalogs.pokedex.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
+from pokedex_mcp.catalogs.pokedex.domain.errors import (
+    AccessDenied,
+    InvalidQuery,
+    NotFound,
+    PokedexUnavailable,
+)
 from pokedex_mcp.catalogs.pokedex.domain.models import (
     EvolutionChain,
     Move,
@@ -115,6 +120,9 @@ class _RecordingLookupProbe:
 
     def source_unavailable(self, error: PokedexUnavailable) -> None:
         self._events.append(f"{self._lookup}: unavailable")
+
+    def access_denied(self, error: AccessDenied) -> None:
+        self._events.append(f"{self._lookup}: denied")
 
 
 class RecordingPokedexProbe:

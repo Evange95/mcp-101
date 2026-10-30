@@ -45,6 +45,7 @@ class PokemonDTO(_DTO):
     abilities: list[AbilitySlot]
     stats: list[StatEntry]
     sprites: Sprites
+    species: NamedResource
 
 
 class FlavorTextEntry(_DTO):

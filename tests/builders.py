@@ -11,7 +11,7 @@ from pokedex_mcp.catalogs.pokedex.domain.models import (
 )
 
 
-def make_pokemon(name: str = "pikachu", id: int = 25) -> Pokemon:
+def make_pokemon(name: str = "pikachu", id: int = 25, species: str | None = None) -> Pokemon:
     return Pokemon(
         id=id,
         name=name,
@@ -21,6 +21,7 @@ def make_pokemon(name: str = "pikachu", id: int = 25) -> Pokemon:
         abilities=("static", "lightning-rod"),
         stats=(PokemonStat("hp", 35), PokemonStat("speed", 90)),
         sprite_url=f"https://sprites.test/{id}.png",
+        species=species or name,
     )
 
 
@@ -29,12 +30,13 @@ def make_species(
     id: int = 25,
     evolution_chain_id: int | None = 10,
     default_variety: str | None = None,
+    is_legendary: bool = False,
 ) -> PokemonSpecies:
     return PokemonSpecies(
         id=id,
         name=name,
         generation="generation-i",
-        is_legendary=False,
+        is_legendary=is_legendary,
         is_mythical=False,
         flavor_text="When several of these POKéMON gather, their electricity could build "
         "and cause lightning storms.",

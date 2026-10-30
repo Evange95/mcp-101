@@ -126,6 +126,21 @@ Inside each catalog (paths below are relative to `catalogs/pokedex/`), hexagonal
 - Readiness may use `tokens.available()` (local). It must never call the upstream.
 - Mount Secrets as volumes without `subPath`, or rotation stops working.
 
+## Inbound authentication rules
+
+- Client tokens for `/mcp` live in `platform/inbound/auth.py`: `FileClientTokens` is the MCP
+  SDK's `TokenVerifier`, passed to `build_mcp_server(..., token_verifier=...)` by
+  `main.py` when `auth_clients_file` is set. Do not write a middleware of our own.
+- The clients file holds SHA-256 hashes, never tokens; never log a token or the client a
+  refused token claimed to be. A broken file refuses everyone (fail closed).
+- Authorization is a domain rule behind an application port (`Caller` in
+  `catalogs/pokedex/application/ports.py`), answered by the inbound adapter from the token
+  scopes (`ScopeCaller`, `current_scopes()`). Check permissions on the **result** (the
+  species), never on the name asked for. With authentication off, nothing is restricted.
+- A denial is the `access_denied` probe outcome (`denied`), never a span error. Its tool
+  error names the missing scope and tells the model not to retry.
+- New scopes: `<catalog>:<what>` (e.g. `pokedex:legendary`), documented in the README.
+
 ## MCP tools rules
 
 - Tools live in `catalogs/<name>/adapters/inbound/mcp/tools.py`, one method per tool on a

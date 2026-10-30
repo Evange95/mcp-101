@@ -6,6 +6,7 @@ settings every catalog shares (`platform/settings.py`), and each catalog's own s
 one its own part.
 """
 
+from pathlib import Path
 from typing import Annotated, Literal
 
 from pydantic import Field, field_validator
@@ -30,6 +31,9 @@ class Settings(BaseSettings):
     # flush) must stay below the pod's terminationGracePeriodSeconds (30 by default).
     shutdown_drain_seconds: float = Field(default=5.0, ge=0)
     shutdown_timeout_seconds: int = Field(default=20, gt=0)
+    # Clients allowed to call /mcp (a mounted Secret, see platform/inbound/auth.py). Unset:
+    # /mcp is open, as before; only for localhost and trusted networks.
+    auth_clients_file: Path | None = None
 
     # Each part reads its own variables (same POKEDEX_* names as when everything was flat).
     upstream: UpstreamSettings = Field(default_factory=UpstreamSettings)

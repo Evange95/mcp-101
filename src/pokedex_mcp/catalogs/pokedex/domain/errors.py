@@ -33,5 +33,16 @@ class PokedexUnavailable(PokedexError):
         super().__init__(f"Pokédex data source unavailable: {reason}")
 
 
+class AccessDenied(PokedexError):
+    """The caller may not see this resource (e.g. a legendary Pokémon without the
+    `pokedex:legendary` permission). Not a fault: an expected, final answer."""
+
+    def __init__(self, resource: str, key: str, reason: str) -> None:
+        self.resource = resource
+        self.key = key
+        self.reason = reason
+        super().__init__(f"{resource} '{key}' is restricted: {reason}")
+
+
 class InvalidQuery(PokedexError):
     """The caller supplied an invalid query (blank key, out-of-range pagination...)."""

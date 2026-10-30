@@ -13,13 +13,17 @@ from typing import Protocol
 
 import httpx
 from mcp.server import MCPServer
+from mcp.server.auth.provider import TokenVerifier
+from mcp.server.auth.settings import AuthSettings
 from mcp.types import ToolAnnotations
+from pydantic import AnyHttpUrl
 
 from pokedex_mcp.platform.health import ReadinessCheck
+from pokedex_mcp.platform.inbound.auth import ClientsProbe
 from pokedex_mcp.platform.resilience.cache import CacheProbe
 from pokedex_mcp.platform.resilience.retry import RetryProbe
 from pokedex_mcp.platform.settings import UpstreamSettings
-from pokedex_mcp.platform.telemetry.log import LoggingTokenProbe
+from pokedex_mcp.platform.telemetry.log import LoggingClientsProbe, LoggingTokenProbe
 from pokedex_mcp.platform.telemetry.lookups import (
     FanOutLookupRecorder,
     FanOutPayloadRecorder,
@@ -30,7 +34,12 @@ from pokedex_mcp.platform.telemetry.lookups import (
     OtelPayloadRecorder,
     PayloadRecorder,
 )
-from pokedex_mcp.platform.telemetry.otel import FanOutTokenProbe, OtelTokenProbe
+from pokedex_mcp.platform.telemetry.otel import (
+    FanOutClientsProbe,
+    FanOutTokenProbe,
+    OtelClientsProbe,
+    OtelTokenProbe,
+)
 from pokedex_mcp.platform.telemetry.resilience import (
     FanOutCacheProbe,
     FanOutRetryProbe,
@@ -122,6 +131,14 @@ class Platform:
             LoggingRetryProbe(catalog), OtelRetryProbe(self.telemetry.meter_provider, catalog)
         )
 
+    def clients_probe(self) -> ClientsProbe:
+        """Inbound authentication signals: logs always, OTel metrics too when on."""
+        if self.telemetry is None:
+            return LoggingClientsProbe()
+        return FanOutClientsProbe(
+            LoggingClientsProbe(), OtelClientsProbe(self.telemetry.meter_provider)
+        )
+
     def bearer_auth(self, tokens: AccessTokenProvider) -> BearerAuth:
         return BearerAuth(tokens, probe=self.token_probe())
 
@@ -175,9 +192,19 @@ def add_catalog_tools(mcp: MCPServer, prefix: str, tools: Sequence[Tool]) -> Non
         mcp.add_tool(tool, name=tool.__name__, annotations=READ_ONLY)
 
 
-def build_mcp_server(modules: Sequence[CatalogModule]) -> MCPServer:
+# Static client tokens have no authorization server, but the SDK's auth settings require an
+# issuer URL. It is only published in OAuth metadata, which stays off (no resource URL).
+STATIC_TOKENS_ISSUER = AnyHttpUrl("https://static-tokens.invalid")
+
+
+def build_mcp_server(
+    modules: Sequence[CatalogModule], token_verifier: TokenVerifier | None = None
+) -> MCPServer:
     """One MCP server for every catalog. Fails at startup if two catalogs share a name or a
-    tool prefix, or one prefix starts another: a model could no longer tell them apart."""
+    tool prefix, or one prefix starts another: a model could no longer tell them apart.
+
+    With a `token_verifier`, every MCP request needs a known bearer token (401 otherwise).
+    """
     names = [module.name for module in modules]
     if len(set(names)) != len(names):
         raise CatalogConflict(f"duplicate catalog names: {names}")
@@ -188,7 +215,14 @@ def build_mcp_server(modules: Sequence[CatalogModule]) -> MCPServer:
     if len(set(prefixes)) != len(prefixes):
         raise CatalogConflict(f"duplicate tool prefixes: {prefixes}")
     instructions = "\n".join([INTRODUCTION, *(f"- {m.instructions}" for m in modules)])
-    mcp = MCPServer(name=SERVER_NAME, instructions=instructions)
+    auth = (
+        AuthSettings(issuer_url=STATIC_TOKENS_ISSUER, resource_server_url=None)
+        if token_verifier is not None
+        else None
+    )
+    mcp = MCPServer(
+        name=SERVER_NAME, instructions=instructions, token_verifier=token_verifier, auth=auth
+    )
     for module in modules:
         add_catalog_tools(mcp, module.tool_prefix, module.tools())
     return mcp

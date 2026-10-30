@@ -51,6 +51,7 @@ def to_pokemon(dto: PokemonDTO) -> Pokemon:
         abilities=tuple(slot.ability.name for slot in sorted(dto.abilities, key=lambda s: s.slot)),
         stats=tuple(PokemonStat(entry.stat.name, entry.base_stat) for entry in dto.stats),
         sprite_url=dto.sprites.front_default,
+        species=dto.species.name,
     )
 
 

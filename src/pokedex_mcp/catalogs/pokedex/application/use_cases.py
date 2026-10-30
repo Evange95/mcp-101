@@ -6,14 +6,19 @@ import unicodedata
 from collections.abc import Generator
 from contextlib import contextmanager
 
-from pokedex_mcp.catalogs.pokedex.application.ports import PokedexRepository
+from pokedex_mcp.catalogs.pokedex.application.ports import Caller, EveryCaller, PokedexRepository
 from pokedex_mcp.catalogs.pokedex.application.probes import (
     Lookup,
     LookupProbe,
     NullPokedexProbe,
     PokedexProbe,
 )
-from pokedex_mcp.catalogs.pokedex.domain.errors import InvalidQuery, NotFound, PokedexUnavailable
+from pokedex_mcp.catalogs.pokedex.domain.errors import (
+    AccessDenied,
+    InvalidQuery,
+    NotFound,
+    PokedexUnavailable,
+)
 from pokedex_mcp.catalogs.pokedex.domain.models import (
     EvolutionChain,
     EvolutionStage,
@@ -62,26 +67,38 @@ def _normalized(probe: LookupProbe, raw: str | int) -> str:
 
 
 class PokedexService:
-    def __init__(self, repository: PokedexRepository, probe: PokedexProbe | None = None) -> None:
+    def __init__(
+        self,
+        repository: PokedexRepository,
+        probe: PokedexProbe | None = None,
+        caller: Caller | None = None,
+    ) -> None:
         self._repository = repository
         self._probe = probe or NullPokedexProbe()
+        self._caller = caller or EveryCaller()
 
     async def get_pokemon(self, name_or_id: str | int) -> Pokemon:
         with self._observed("pokemon", name_or_id) as probe:
             key = _normalized(probe, name_or_id)
             try:
-                return await self._repository.get_pokemon(key)
+                pokemon = await self._repository.get_pokemon(key)
             except NotFound as missing:
                 # "deoxys" is a species whose Pokémon is "deoxys-normal": answer with it.
                 species = await self._species(key, missing)
                 if species.default_variety is None or species.default_variety == key:
                     raise missing from None
                 probe.query_resolved(species.default_variety)
-                return await self._repository.get_pokemon(species.default_variety)
+                pokemon = await self._repository.get_pokemon(species.default_variety)
+            # Checked on the result, not the query: "mewtwo-mega-x" and id 10043 are Mewtwo.
+            await self._check_access("Pokémon", key, pokemon.species)
+            return pokemon
 
     async def get_species(self, name_or_id: str | int) -> PokemonSpecies:
         with self._observed("species", name_or_id) as probe:
-            return await self._species(_normalized(probe, name_or_id))
+            key = _normalized(probe, name_or_id)
+            species = await self._species(key)
+            await self._check_access("Species", key, species)
+            return species
 
     async def list_pokemon(
         self, page: int = 0, page_size: int = 20, *, name: str | None = None
@@ -111,7 +128,9 @@ class PokedexService:
         with self._observed("evolution_chain", name_or_id) as probe:
             # The species is read directly, not through get_species: one tool call is one
             # lookup in the metrics, not two.
-            species = await self._species(_normalized(probe, name_or_id))
+            key = _normalized(probe, name_or_id)
+            species = await self._species(key)
+            await self._check_access("Evolution chain", key, species)
             if species.evolution_chain_id is None:
                 return EvolutionChain(id=None, root=EvolutionStage(species.name))
             return await self._repository.get_evolution_chain(species.evolution_chain_id)
@@ -119,6 +138,16 @@ class PokedexService:
     async def get_move(self, name_or_id: str | int) -> Move:
         with self._observed("move", name_or_id) as probe:
             return await self._repository.get_move(_normalized(probe, name_or_id))
+
+    async def _check_access(self, resource: str, key: str, species: PokemonSpecies | str) -> None:
+        """Legendary and mythical details only for callers allowed to see them."""
+        if self._caller.may_see_legendary():
+            return
+        if isinstance(species, str):
+            species = await self._repository.get_species(species)
+        if species.is_legendary or species.is_mythical:
+            kind = "legendary" if species.is_legendary else "mythical"
+            raise AccessDenied(resource, key, f"{species.name} is a {kind} Pokémon")
 
     async def _species(self, key: str, missing: NotFound | None = None) -> PokemonSpecies:
         """The species, or a NotFound that suggests close Pokémon names."""
@@ -148,6 +177,9 @@ class PokedexService:
                 raise
             except NotFound as exc:
                 probe.not_found(exc)
+                raise
+            except AccessDenied as exc:
+                probe.access_denied(exc)
                 raise
             except PokedexUnavailable as exc:
                 probe.source_unavailable(exc)
